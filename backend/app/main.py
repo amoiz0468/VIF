@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from typing import List
@@ -8,6 +9,14 @@ from .database import engine
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="ViF - Smart Marketplace")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.post("/signup", response_model=schemas.User)
 def signup(user: schemas.UserCreate, db: Session = Depends(database.get_db)):
