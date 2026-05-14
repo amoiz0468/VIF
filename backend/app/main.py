@@ -5,10 +5,13 @@ from typing import List
 from . import crud, models, schemas, auth, database
 from .database import engine
 from .services import insee
+from .routers.shopkeeper import router as shopkeeper_router
 
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="ViF - Smart Marketplace")
+
+app.include_router(shopkeeper_router)
 
 app.add_middleware(
     CORSMiddleware,

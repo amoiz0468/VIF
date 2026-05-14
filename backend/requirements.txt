@@ -12,3 +12,4 @@ sqlmodel
 geoalchemy2
 alembic
 requests
+reportlab
