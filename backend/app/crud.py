@@ -12,7 +12,8 @@ def create_user(db: Session, user: schemas.UserCreate):
         role=user.role.value,
         student_id_url=user.student_id_url,
         shop_name=user.shop_name,
-        shop_address=user.shop_address
+        shop_address=user.shop_address,
+        siret=user.siret
     )
     db.add(db_user)
     db.commit()

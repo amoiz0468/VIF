@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from . import crud, models, schemas, auth, database
 from .database import engine
+from .services import insee
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -38,6 +39,13 @@ def signup(user: schemas.UserCreate, db: Session = Depends(database.get_db)):
     if user.role == models.UserRole.SHOPKEEPER:
         if not user.shop_name or not user.shop_address:
             raise HTTPException(status_code=400, detail="Shop name and address are required for shopkeepers")
+        if not user.siret:
+            raise HTTPException(status_code=400, detail="SIRET number is required for shopkeepers")
+        
+        # Validate SIRET with INSEE
+        validation = insee.check_siret_with_insee(user.siret)
+        if not validation.get("valid"):
+            raise HTTPException(status_code=400, detail=f"SIRET validation failed: {validation.get('reason')}")
 
     return crud.create_user(db=db, user=user)
 

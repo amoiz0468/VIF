@@ -18,6 +18,7 @@ class User(Base):
     student_id_url = Column(String, nullable=True)
     shop_name = Column(String, nullable=True)
     shop_address = Column(String, nullable=True)
+    siret = Column(String(14), nullable=True, unique=True, index=True)
 
 class Item(Base):
     __tablename__ = "items"

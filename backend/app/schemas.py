@@ -27,6 +27,7 @@ class UserCreate(UserBase):
     student_id_url: Optional[str] = None
     shop_name: Optional[str] = None
     shop_address: Optional[str] = None
+    siret: Optional[str] = None
 
 class User(UserBase):
     id: UUID
@@ -34,6 +35,7 @@ class User(UserBase):
     student_id_url: Optional[str] = None
     shop_name: Optional[str] = None
     shop_address: Optional[str] = None
+    siret: Optional[str] = None
 
     class Config:
         from_attributes = True
