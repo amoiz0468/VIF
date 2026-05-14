@@ -1,6 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from typing import List
 from . import crud, models, schemas, auth, database
@@ -43,9 +42,9 @@ def signup(user: schemas.UserCreate, db: Session = Depends(database.get_db)):
     return crud.create_user(db=db, user=user)
 
 @app.post("/token", response_model=schemas.Token)
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(database.get_db)):
-    user = crud.get_user_by_email(db, email=form_data.username)
-    if not user or not auth.verify_password(form_data.password, user.hashed_password):
+async def login_for_access_token(payload: schemas.LoginRequest, db: Session = Depends(database.get_db)):
+    user = crud.get_user_by_email(db, email=payload.email)
+    if not user or not auth.verify_password(payload.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",

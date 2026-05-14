@@ -1,5 +1,6 @@
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
+from uuid import UUID
 from .models import UserRole
 
 class ItemBase(BaseModel):
@@ -28,7 +29,7 @@ class UserCreate(UserBase):
     shop_address: Optional[str] = None
 
 class User(UserBase):
-    id: int
+    id: UUID
     role: UserRole
     student_id_url: Optional[str] = None
     shop_name: Optional[str] = None
@@ -40,6 +41,10 @@ class User(UserBase):
 class Token(BaseModel):
     access_token: str
     token_type: str
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
 
 class TokenData(BaseModel):
     email: Optional[str] = None

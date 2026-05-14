@@ -12,7 +12,9 @@ SECRET_KEY = "a_very_secret_key_change_me_in_production"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Use PBKDF2-SHA256 instead of bcrypt to avoid bcrypt backend issues on Python 3.13
+# and to remove the 72-byte password length limitation.
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 def verify_password(plain_password, hashed_password):
