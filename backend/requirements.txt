@@ -11,3 +11,5 @@ python-dotenv
 sqlmodel
 geoalchemy2
 alembic
+requests
+reportlab
