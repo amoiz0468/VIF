@@ -59,3 +59,12 @@ def check_admin_role(user: models.User = Depends(get_current_user)):
             detail="The user does not have enough privileges",
         )
     return user
+
+
+def check_student_role(user: models.User = Depends(get_current_user)):
+    if user.role != models.UserRole.STUDENT.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Student access required",
+        )
+    return user

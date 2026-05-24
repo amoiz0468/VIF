@@ -19,7 +19,8 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
-from . import fcm_service, karma_engine, insee
+from ..database import SessionLocal
+from . import fcm_service, karma_engine, insee, student_portal
 
 log = logging.getLogger("vif.shopkeeper")
 
@@ -133,7 +134,7 @@ async def search_verified_students_near_shop(db: Session, shop: models.Shop, rad
     return (
         db.query(models.StudentLocation)
         .join(models.User, models.User.id == models.StudentLocation.student_user_id)
-        .filter(models.StudentLocation.is_verified.is_(True))
+        .filter(models.User.is_verified.is_(True))
         .filter(models.User.role == models.UserRole.STUDENT.value)
         .filter(func.ST_DWithin(models.StudentLocation.location, shop.location, radius_meters))
         .all()
@@ -157,6 +158,7 @@ async def create_pulse(
         description=payload.description,
         is_donation=payload.is_donation,
         quantity=payload.quantity,
+        quantity_remaining=payload.quantity,
         expires_at=expires_at,
     )
     db.add(pulse)
@@ -185,33 +187,7 @@ async def create_student_claim(
     pulse_id: UUID,
     quantity: int,
 ) -> models.Claim:
-    if current_user.role != models.UserRole.STUDENT.value:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Student access required")
-
-    pulse = db.query(models.Pulse).filter(models.Pulse.id == pulse_id).first()
-    if not pulse:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pulse not found")
-
-    now = datetime.now(timezone.utc)
-    if pulse.expires_at and _ensure_aware_utc(pulse.expires_at) <= now:
-        raise HTTPException(status_code=status.HTTP_410_GONE, detail="This pulse has expired")
-
-    expires_at = min(now + timedelta(minutes=15), _ensure_aware_utc(pulse.expires_at))
-    qr_token = _generate_unique_qr_token(db, length=6)
-
-    claim = models.Claim(
-        shop_id=pulse.shop_id,
-        pulse_id=pulse.id,
-        student_user_id=current_user.id,
-        qr_token=qr_token,
-        quantity=quantity,
-        status=models.ClaimStatus.PENDING.value,
-        claimed_at=now,
-        expires_at=expires_at,
-    )
-    db.add(claim)
-    db.commit()
-    db.refresh(claim)
+    claim = await student_portal.create_claim(db, current_user, pulse_id, SessionLocal)
     return claim
 
 
@@ -223,7 +199,7 @@ async def validate_claim(
     shop = get_or_create_shop(db, current_user)
     claim = (
         db.query(models.Claim)
-        .filter(models.Claim.qr_token == qr_token)
+        .filter((models.Claim.qr_token == qr_token) | (models.Claim.qr_code_token == qr_token))
         .filter(models.Claim.shop_id == shop.id)
         .first()
     )
