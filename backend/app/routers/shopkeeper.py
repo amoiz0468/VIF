@@ -45,7 +45,9 @@ async def create_pulse(
         description=pulse.description,
         is_donation=pulse.is_donation,
         quantity=pulse.quantity,
+        quantity_remaining=pulse.quantity_remaining,
         expires_at=pulse.expires_at,
+        created_at=pulse.created_at,
         notified_students=notified_students,
     )
 
@@ -73,7 +75,10 @@ async def validate_claim(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(auth.check_admin_role),
 ):
-    claim = await shopkeeper_service.validate_claim(db, current_user, payload.qr_token)
+    token = payload.qr_code_token or payload.qr_token
+    if not token:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="qr_token or qr_code_token is required")
+    claim = await shopkeeper_service.validate_claim(db, current_user, token)
     return schemas.ClaimValidateResponse(
         claim_id=claim.id,
         status=str(claim.status),

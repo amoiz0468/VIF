@@ -1,17 +1,52 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 from typing import List
 from . import crud, models, schemas, auth, database
 from .database import engine
 from .services import insee
 from .routers.shopkeeper import router as shopkeeper_router
+from .routers.student_portal import router as student_portal_router
+from .services import karma_engine
 
 models.Base.metadata.create_all(bind=engine)
+
+
+def ensure_student_portal_schema() -> None:
+    inspector = inspect(engine)
+    existing_columns = {column["name"] for column in inspector.get_columns("users")}
+    with engine.begin() as connection:
+        if "karma_score" not in existing_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS karma_score INTEGER NOT NULL DEFAULT 50"))
+        if "is_verified" not in existing_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT FALSE"))
+        if "id_verification_status" not in existing_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS id_verification_status TEXT NOT NULL DEFAULT 'pending'"))
+
+        pulse_columns = {column["name"] for column in inspector.get_columns("pulses")}
+        if "quantity_remaining" not in pulse_columns:
+            connection.execute(text("ALTER TABLE pulses ADD COLUMN IF NOT EXISTS quantity_remaining INTEGER NOT NULL DEFAULT 0"))
+            connection.execute(text("UPDATE pulses SET quantity_remaining = quantity WHERE quantity_remaining = 0 OR quantity_remaining IS NULL"))
+
+        claim_columns = {column["name"] for column in inspector.get_columns("claims")}
+        if "qr_code_token" not in claim_columns:
+            connection.execute(text("ALTER TABLE claims ADD COLUMN IF NOT EXISTS qr_code_token TEXT"))
+        if "claim_deadline" not in claim_columns:
+            connection.execute(text("ALTER TABLE claims ADD COLUMN IF NOT EXISTS claim_deadline TIMESTAMPTZ"))
+
+        connection.execute(text("UPDATE claims SET qr_code_token = COALESCE(qr_code_token, qr_token)"))
+        connection.execute(text("UPDATE claims SET claim_deadline = COALESCE(claim_deadline, expires_at, created_at + INTERVAL '20 minutes')"))
+        connection.execute(text("ALTER TABLE claims ALTER COLUMN qr_code_token SET NOT NULL"))
+        connection.execute(text("ALTER TABLE claims ALTER COLUMN claim_deadline SET NOT NULL"))
+
+
+ensure_student_portal_schema()
 
 app = FastAPI(title="ViF - Smart Marketplace")
 
 app.include_router(shopkeeper_router)
+app.include_router(student_portal_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -20,6 +55,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def bootstrap_background_workers() -> None:
+    karma_engine.bootstrap_pending_claim_tasks(database.SessionLocal)
 
 @app.post("/signup", response_model=schemas.User)
 def signup(user: schemas.UserCreate, db: Session = Depends(database.get_db)):

@@ -13,3 +13,6 @@ geoalchemy2
 alembic
 requests
 reportlab
+Pillow
+pytesseract
+httpx
