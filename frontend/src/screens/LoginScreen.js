@@ -18,14 +18,9 @@ const LoginScreen = ({ navigation }) => {
 
     setLoading(true);
     try {
-      const formData = new FormData();
-      formData.append('username', email);
-      formData.append('password', password);
-
-      const response = await client.post('/token', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
+      const response = await client.post('/token', {
+        email,
+        password,
       });
 
       const { access_token } = response.data;
