@@ -15,6 +15,7 @@ const SignupScreen = ({ navigation }) => {
   const [studentIdImage, setStudentIdImage] = useState(null);
   const [shopName, setShopName] = useState('');
   const [shopAddress, setShopAddress] = useState('');
+  const [siret, setSiret] = useState('');
 
   const pickImage = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
@@ -57,6 +58,14 @@ const SignupScreen = ({ navigation }) => {
         Alert.alert('Details Required', 'Please provide your shop name and address.');
         return;
       }
+      if (!siret) {
+        Alert.alert('SIRET Required', 'Please provide your SIRET number.');
+        return;
+      }
+      if (!/^\d{14}$/.test(siret)) {
+        Alert.alert('Invalid SIRET', 'SIRET number must be exactly 14 digits.');
+        return;
+      }
     }
 
     setLoading(true);
@@ -68,6 +77,7 @@ const SignupScreen = ({ navigation }) => {
         student_id_url: studentIdImage,
         shop_name: shopName,
         shop_address: shopAddress,
+        siret,
       });
 
       Alert.alert('Success', 'Account created successfully!', [
@@ -190,6 +200,18 @@ const SignupScreen = ({ navigation }) => {
                     placeholderTextColor="#64748B"
                     value={shopAddress}
                     onChangeText={setShopAddress}
+                  />
+                </View>
+                <View style={styles.inputWrapper}>
+                  <Ionicons name="card-outline" size={20} color="#94A3B8" style={styles.inputIcon} />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="SIRET Number (14 digits)"
+                    placeholderTextColor="#64748B"
+                    value={siret}
+                    onChangeText={setSiret}
+                    keyboardType="numeric"
+                    maxLength={14}
                   />
                 </View>
               </View>
