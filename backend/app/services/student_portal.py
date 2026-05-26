@@ -233,3 +233,52 @@ async def verify_student_id(db: Session, current_user: models.User, upload: Uplo
         matched_keywords=matched_keywords,
         message="Student ID upload accepted. Verification is enabled.",
     )
+
+
+async def get_active_claim(db: Session, current_user: models.User) -> Optional[models.Claim]:
+    """Return the student's current pending claim, or None if no active claim exists."""
+    return (
+        db.query(models.Claim)
+        .filter(models.Claim.student_user_id == current_user.id)
+        .filter(models.Claim.status == models.ClaimStatus.PENDING.value)
+        .first()
+    )
+
+
+def register_location(
+    db: Session,
+    current_user: models.User,
+    latitude: float,
+    longitude: float,
+    push_token: Optional[str] = None,
+) -> models.StudentLocation:
+    """Create or update the student's location and push token for proximity notifications."""
+    point = _student_point(latitude, longitude)
+
+    existing = (
+        db.query(models.StudentLocation)
+        .filter(models.StudentLocation.student_user_id == current_user.id)
+        .first()
+    )
+
+    if existing:
+        existing.location = point
+        if push_token is not None:
+            existing.push_token = push_token
+        existing.is_verified = current_user.is_verified or False
+        db.add(existing)
+        db.commit()
+        db.refresh(existing)
+        return existing
+
+    student_location = models.StudentLocation(
+        student_user_id=current_user.id,
+        location=point,
+        push_token=push_token,
+        is_verified=current_user.is_verified or False,
+    )
+    db.add(student_location)
+    db.commit()
+    db.refresh(student_location)
+    return student_location
+
