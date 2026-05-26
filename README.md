@@ -108,7 +108,6 @@ Vif is an EPITECH capstone project delivered over a twelve-week, three-sprint cy
 
 ## 👥 Team
 
-**Lead Engineer & Documentation Lead:** Rao Muhammad Mueez
 
 Delivered by a four-member engineering team organised by feature group (Auth & Security, Core API & Database, Mobile Core, Real-time & Geofencing).
 
