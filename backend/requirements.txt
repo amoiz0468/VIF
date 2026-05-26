@@ -16,3 +16,4 @@ reportlab
 Pillow
 pytesseract
 httpx
+docling

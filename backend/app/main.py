@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, File, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
@@ -9,6 +9,7 @@ from .services import insee
 from .routers.shopkeeper import router as shopkeeper_router
 from .routers.student_portal import router as student_portal_router
 from .services import karma_engine
+from .services import student_portal as student_portal_service
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -23,6 +24,10 @@ def ensure_student_portal_schema() -> None:
             connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT FALSE"))
         if "id_verification_status" not in existing_columns:
             connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS id_verification_status TEXT NOT NULL DEFAULT 'pending'"))
+        if "student_card_start_date" not in existing_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS student_card_start_date DATE"))
+        if "student_card_end_date" not in existing_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS student_card_end_date DATE"))
 
         pulse_columns = {column["name"] for column in inspector.get_columns("pulses")}
         if "quantity_remaining" not in pulse_columns:
@@ -107,6 +112,16 @@ async def login_for_access_token(payload: schemas.LoginRequest, db: Session = De
 @app.get("/users/me", response_model=schemas.User)
 async def read_users_me(current_user: models.User = Depends(auth.get_current_user)):
     return current_user
+
+@app.post("/student/verify-id", response_model=schemas.StudentIdVerificationResponse)
+async def verify_student_id(
+    upload: UploadFile = File(...),
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.check_student_role),
+):
+    if not upload.content_type or not upload.content_type.startswith("image/"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Please upload an image file")
+    return await student_portal_service.verify_student_id(db, current_user, upload)
 
 @app.get("/items", response_model=List[schemas.Item])
 def read_items(skip: int = 0, limit: int = 100, db: Session = Depends(database.get_db)):

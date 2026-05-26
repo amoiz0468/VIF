@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Dict, List, Optional
 from uuid import UUID
@@ -44,6 +44,8 @@ class User(UserBase):
     karma_score: int = 50
     is_verified: bool = False
     id_verification_status: str = "pending"
+    student_card_start_date: Optional[date] = None
+    student_card_end_date: Optional[date] = None
     student_id_url: Optional[str] = None
     shop_name: Optional[str] = None
     shop_address: Optional[str] = None
@@ -186,6 +188,8 @@ class StudentIdVerificationResponse(BaseModel):
     manual_review: bool
     status: str
     matched_keywords: List[str]
+    extracted_start_date: Optional[date] = None
+    extracted_end_date: Optional[date] = None
     message: str
 
 

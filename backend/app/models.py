@@ -2,7 +2,7 @@ from datetime import datetime
 from uuid import uuid4
 
 from geoalchemy2 import Geography
-from sqlalchemy import Column, Integer, String, Float, Enum, Boolean, DateTime, ForeignKey, func, text
+from sqlalchemy import Column, Integer, String, Float, Enum, Boolean, Date, DateTime, ForeignKey, func, text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID, JSONB, ENUM as PG_ENUM
 from .database import Base
 import enum
@@ -21,6 +21,8 @@ class User(Base):
     karma_score = Column(Integer, nullable=False, default=50, server_default=text("50"))
     is_verified = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     id_verification_status = Column(String, nullable=False, default="pending", server_default=text("'pending'"))
+    student_card_start_date = Column(Date, nullable=True)
+    student_card_end_date = Column(Date, nullable=True)
     
     # New fields
     student_id_url = Column(String, nullable=True)
