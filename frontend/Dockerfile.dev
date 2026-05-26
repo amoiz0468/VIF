@@ -1,0 +1,18 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copy dependency manifests
+COPY package.json package-lock.json ./
+
+# Install dependencies
+RUN npm install
+
+# Copy source code
+COPY . .
+
+# Expose Expo default ports: 8081 (Metro bundler)
+EXPOSE 8081
+
+# Command to run Expo Web
+CMD ["npx", "expo", "start", "--web"]
