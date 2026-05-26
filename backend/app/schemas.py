@@ -189,6 +189,23 @@ class StudentIdVerificationResponse(BaseModel):
     message: str
 
 
+class StudentLocationRequest(BaseModel):
+    latitude: float = Field(..., ge=-90, le=90)
+    longitude: float = Field(..., ge=-180, le=180)
+    push_token: Optional[str] = None
+
+
+class StudentLocationResponse(BaseModel):
+    student_user_id: UUID
+    latitude: float
+    longitude: float
+    push_token: Optional[str] = None
+    is_verified: bool
+    message: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class TaxReportRequest(BaseModel):
     year: int = Field(..., ge=2000, le=2100)
     month: int = Field(..., ge=1, le=12)
