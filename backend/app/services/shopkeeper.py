@@ -290,15 +290,28 @@ def generate_cerfa_report(
         "line_items": line_items,
     }
 
-    report = models.TaxReport(
-        shop_id=shop_id,
-        year=year,
-        month=month,
-        total_donated_value=float(total_value),
-        items_count=total_items,
-        cerfa_payload=cerfa_payload,
+    existing_report = (
+        db.query(models.TaxReport)
+        .filter(models.TaxReport.shop_id == shop_id)
+        .filter(models.TaxReport.year == year)
+        .filter(models.TaxReport.month == month)
+        .first()
     )
-    db.add(report)
+    if existing_report:
+        existing_report.total_donated_value = float(total_value)
+        existing_report.items_count = total_items
+        existing_report.cerfa_payload = cerfa_payload
+        report = existing_report
+    else:
+        report = models.TaxReport(
+            shop_id=shop_id,
+            year=year,
+            month=month,
+            total_donated_value=float(total_value),
+            items_count=total_items,
+            cerfa_payload=cerfa_payload,
+        )
+        db.add(report)
     db.commit()
     db.refresh(report)
 
