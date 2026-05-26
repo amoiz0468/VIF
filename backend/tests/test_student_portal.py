@@ -410,11 +410,19 @@ class StudentPortalServiceTests(IsolatedAsyncioTestCase):
 
     async def test_verify_student_id_marks_verified(self):
         db = FakeDB({})
+        today = datetime.now(timezone.utc).date()
+        start = today - timedelta(days=180)
+        end = today + timedelta(days=180)
 
         async def fake_extract(upload):
-            return "Etudiant IZLY 2025-2026"
+            return "Etudiant IZLY OCR blob"
 
-        with patch.object(student_portal, "_extract_ocr_text", side_effect=fake_extract):
+        async def fake_llm_dates(extracted_text):
+            return start, end
+
+        with patch.object(student_portal, "_extract_ocr_text", side_effect=fake_extract), patch.object(
+            student_portal, "_llm_correct_student_card_dates", side_effect=fake_llm_dates
+        ):
             response = await student_portal.verify_student_id(db, self.student_user, DummyUpload(b"fake image bytes"))
 
         self.assertTrue(response.verified)
@@ -423,22 +431,29 @@ class StudentPortalServiceTests(IsolatedAsyncioTestCase):
         self.assertIn("ETUDIANT", response.matched_keywords)
         self.assertTrue(self.student_user.is_verified)
         self.assertEqual(self.student_user.id_verification_status, "verified")
+        self.assertIsNotNone(self.student_user.student_card_start_date)
+        self.assertIsNotNone(self.student_user.student_card_end_date)
 
-    async def test_verify_student_id_marks_verified_even_without_keywords(self):
+    async def test_verify_student_id_flags_manual_review_without_readable_end_date(self):
         db = FakeDB({})
 
         async def fake_extract(upload):
             return "no useful text"
 
-        with patch.object(student_portal, "_extract_ocr_text", side_effect=fake_extract):
+        async def fake_llm_dates(extracted_text):
+            return None, None
+
+        with patch.object(student_portal, "_extract_ocr_text", side_effect=fake_extract), patch.object(
+            student_portal, "_llm_correct_student_card_dates", side_effect=fake_llm_dates
+        ):
             response = await student_portal.verify_student_id(db, self.student_user, DummyUpload(b"fake image bytes"))
 
-        self.assertTrue(response.verified)
-        self.assertFalse(response.manual_review)
-        self.assertEqual(response.status, "verified")
+        self.assertFalse(response.verified)
+        self.assertTrue(response.manual_review)
+        self.assertEqual(response.status, "manual_review")
         self.assertEqual(response.matched_keywords, [])
-        self.assertTrue(self.student_user.is_verified)
-        self.assertEqual(self.student_user.id_verification_status, "verified")
+        self.assertFalse(self.student_user.is_verified)
+        self.assertEqual(self.student_user.id_verification_status, "manual_review")
 
 
 class StudentPortalRouteTests(TestCase):

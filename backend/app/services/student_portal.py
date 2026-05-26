@@ -1,12 +1,17 @@
 import logging
+import json
+import os
 import re
+import tempfile
 from io import BytesIO
-from datetime import datetime, timedelta, timezone
+from calendar import monthrange
+from datetime import date, datetime, timedelta, timezone
 from typing import List, Optional, Tuple
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, UploadFile, status
 from geoalchemy2.elements import WKTElement
+import httpx
 from sqlalchemy import func
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -24,6 +29,9 @@ KEYWORD_PATTERNS = (
     "IZLY",
     "PASS CULTURE",
 )
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openrouter/free")
 
 
 def _ensure_aware_utc(value: datetime) -> datetime:
@@ -54,6 +62,34 @@ async def _extract_ocr_text(upload: UploadFile) -> str:
     file_bytes = await upload.read()
     if not file_bytes:
         return ""
+
+    # Primary OCR path: Docling DocumentConverter
+    temp_path: Optional[str] = None
+    try:
+        from docling.document_converter import DocumentConverter  # type: ignore
+
+        suffix = ".png"
+        if upload.filename and "." in upload.filename:
+            suffix = f".{upload.filename.rsplit('.', 1)[-1]}"
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+            temp_file.write(file_bytes)
+            temp_path = temp_file.name
+
+        converter = DocumentConverter()
+        result = converter.convert(temp_path)
+        output_text = result.document.export_to_markdown()
+        if output_text:
+            return output_text
+    except Exception:
+        # Fall back to pytesseract/plain decode when Docling is unavailable
+        log.exception("Docling OCR extraction failed; falling back to secondary extractor")
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
 
     try:
         from PIL import Image  # type: ignore
@@ -91,6 +127,113 @@ def _find_verification_keywords(extracted_text: str) -> List[str]:
             matches.append(year_token)
 
     return matches
+
+
+def _parse_date_token(value: str, *, prefer_end_of_month: bool = False) -> Optional[date]:
+    cleaned = value.strip().replace(".", "/").replace("-", "/")
+    for fmt in ("%d/%m/%Y", "%d/%m/%y", "%Y/%m/%d", "%m/%d/%Y", "%m/%d/%y"):
+        try:
+            return datetime.strptime(cleaned, fmt).date()
+        except ValueError:
+            continue
+
+    month_year = re.fullmatch(r"(\d{1,2})/(\d{4})", cleaned)
+    if month_year:
+        month = int(month_year.group(1))
+        year = int(month_year.group(2))
+        if 1 <= month <= 12:
+            day = monthrange(year, month)[1] if prefer_end_of_month else 1
+            return date(year, month, day)
+
+    return None
+
+
+def _extract_json_object(content: str) -> Optional[dict]:
+    try:
+        return json.loads(content)
+    except Exception:
+        pass
+
+    start = content.find("{")
+    end = content.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
+    try:
+        return json.loads(content[start : end + 1])
+    except Exception:
+        return None
+
+
+def _record_ocr_output(extracted_text: str) -> None:
+    normalized_preview = re.sub(r"\s+", " ", (extracted_text or "")).strip()
+    log.info("OCR output captured | chars=%d | preview=%s", len(extracted_text or ""), normalized_preview[:500])
+
+    if os.getenv("OCR_DEBUG_SAVE_TEXT", "false").lower() != "true":
+        return
+
+    debug_dir = os.getenv("OCR_DEBUG_DIR", tempfile.gettempdir())
+    try:
+        os.makedirs(debug_dir, exist_ok=True)
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        path = os.path.join(debug_dir, f"ocr_output_{timestamp}.txt")
+        with open(path, "w", encoding="utf-8") as file:
+            file.write(extracted_text or "")
+        log.info("OCR output saved for debugging at %s", path)
+    except Exception:
+        log.exception("Failed to save OCR debug output")
+
+
+async def _llm_correct_student_card_dates(
+    extracted_text: str,
+) -> Tuple[Optional[date], Optional[date]]:
+    if not OPENROUTER_API_KEY:
+        return None, None
+
+    payload = {
+        "model": OPENROUTER_MODEL,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "You extract student card validity dates from OCR text. "
+                    "Return strict JSON only with keys: start_date, end_date. "
+                    "Use ISO format YYYY-MM-DD or null."
+                ),
+            },
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {
+                        "task": "Extract and correct student card validity dates from OCR output.",
+                        "ocr_text": extracted_text,
+                    },
+                    ensure_ascii=False,
+                ),
+            },
+        ],
+        "temperature": 0,
+    }
+
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.post(OPENROUTER_URL, headers=headers, json=payload)
+        response.raise_for_status()
+        data = response.json()
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        parsed = _extract_json_object(content) or {}
+
+        llm_start = _parse_date_token(str(parsed.get("start_date"))) if parsed.get("start_date") else None
+        llm_end = _parse_date_token(str(parsed.get("end_date")), prefer_end_of_month=True) if parsed.get("end_date") else None
+
+        return llm_start, llm_end
+    except Exception:
+        log.exception("OpenRouter correction failed; no card dates extracted")
+        return None, None
 
 
 async def get_nearby_pulses(db: Session, current_user: models.User, latitude: float, longitude: float) -> List[schemas.NearbyPulseResponse]:
@@ -218,9 +361,62 @@ async def create_claim(db: Session, current_user: models.User, pulse_id: UUID, s
 
 async def verify_student_id(db: Session, current_user: models.User, upload: UploadFile) -> schemas.StudentIdVerificationResponse:
     extracted_text = await _extract_ocr_text(upload)
+    _record_ocr_output(extracted_text)
     matched_keywords = _find_verification_keywords(extracted_text)
+    start_date, end_date = await _llm_correct_student_card_dates(extracted_text)
+    today = datetime.now(timezone.utc).date()
 
-    # Temporary product behavior: any uploaded image marks the student as verified.
+    current_user.student_card_start_date = start_date
+    current_user.student_card_end_date = end_date
+
+    if not end_date:
+        current_user.is_verified = False
+        current_user.id_verification_status = "manual_review"
+        db.add(current_user)
+        db.commit()
+        db.refresh(current_user)
+        return schemas.StudentIdVerificationResponse(
+            verified=False,
+            manual_review=True,
+            status="manual_review",
+            matched_keywords=matched_keywords,
+            extracted_start_date=start_date,
+            extracted_end_date=end_date,
+            message="Could not read the student card end date. Please upload a clearer card image.",
+        )
+
+    if start_date and start_date > today:
+        current_user.is_verified = False
+        current_user.id_verification_status = "manual_review"
+        db.add(current_user)
+        db.commit()
+        db.refresh(current_user)
+        return schemas.StudentIdVerificationResponse(
+            verified=False,
+            manual_review=True,
+            status="manual_review",
+            matched_keywords=matched_keywords,
+            extracted_start_date=start_date,
+            extracted_end_date=end_date,
+            message="The student card start date is in the future and needs manual review.",
+        )
+
+    if end_date < today:
+        current_user.is_verified = False
+        current_user.id_verification_status = "expired"
+        db.add(current_user)
+        db.commit()
+        db.refresh(current_user)
+        return schemas.StudentIdVerificationResponse(
+            verified=False,
+            manual_review=False,
+            status="expired",
+            matched_keywords=matched_keywords,
+            extracted_start_date=start_date,
+            extracted_end_date=end_date,
+            message="Student card is expired.",
+        )
+
     current_user.is_verified = True
     current_user.id_verification_status = "verified"
     db.add(current_user)
@@ -231,7 +427,9 @@ async def verify_student_id(db: Session, current_user: models.User, upload: Uplo
         manual_review=False,
         status="verified",
         matched_keywords=matched_keywords,
-        message="Student ID upload accepted. Verification is enabled.",
+        extracted_start_date=start_date,
+        extracted_end_date=end_date,
+        message="Student card is currently valid. Verification is enabled.",
     )
 
 
@@ -281,4 +479,3 @@ def register_location(
     db.commit()
     db.refresh(student_location)
     return student_location
-
