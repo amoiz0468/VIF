@@ -15,6 +15,8 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as SecureStore from 'expo-secure-store';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import client from '../api/client';
 
 const AdminHomeScreen = ({ navigation }) => {
@@ -48,6 +50,7 @@ const AdminHomeScreen = ({ navigation }) => {
   const [taxYear, setTaxYear] = useState('2026');
   const [taxMonth, setTaxMonth] = useState('5');
   const [taxReportData, setTaxReportData] = useState(null);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   useEffect(() => {
     fetchShopDetails();
@@ -211,6 +214,55 @@ const AdminHomeScreen = ({ navigation }) => {
       Alert.alert('Error', msg);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    if (!shopId || !taxReportData) return;
+
+    setDownloadingPdf(true);
+    try {
+      const filename = taxReportData.fileName;
+      const baseUrl = client.defaults.baseURL;
+      const uri = `${baseUrl}/shops/${shopId}/tax-report/${taxYear}/${taxMonth}`;
+
+      if (Platform.OS === 'web') {
+        const response = await client.post(`/shops/${shopId}/tax-report/${taxYear}/${taxMonth}`, null, {
+          responseType: 'blob',
+        });
+        const blob = new Blob([response.data], { type: 'application/pdf' });
+        const downloadUrl = window.URL.createObjectURL(blob);
+        const link = window.document.createElement('a');
+        link.href = downloadUrl;
+        link.download = filename;
+        window.document.body.appendChild(link);
+        link.click();
+        window.document.body.removeChild(link);
+        window.URL.revokeObjectURL(downloadUrl);
+        Alert.alert('Success', 'PDF downloaded successfully.');
+      } else {
+        const token = await SecureStore.getItemAsync('userToken');
+        const fileUri = `${FileSystem.documentDirectory}${filename}`;
+
+        const result = await FileSystem.downloadAsync(uri, fileUri, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          httpMethod: 'POST',
+        });
+
+        const canShare = await Sharing.isAvailableAsync();
+        if (canShare) {
+          await Sharing.shareAsync(result.uri);
+        } else {
+          Alert.alert('Download Complete', `File saved to: ${result.uri}`);
+        }
+      }
+    } catch (error) {
+      console.error(error);
+      Alert.alert('Error', 'Failed to download PDF report.');
+    } finally {
+      setDownloadingPdf(false);
     }
   };
 
@@ -577,6 +629,19 @@ const AdminHomeScreen = ({ navigation }) => {
                             <Text style={styles.gridFileValue} numberOfLines={1}>{taxReportData.fileName}</Text>
                           </View>
                         </View>
+
+                        <TouchableOpacity
+                          style={[styles.btn, { marginTop: 16 }]}
+                          onPress={handleDownloadPdf}
+                          disabled={downloadingPdf}
+                        >
+                          <LinearGradient colors={['#10B981', '#059669']} style={styles.btnGradient}>
+                            <Text style={styles.btnText}>
+                              {downloadingPdf ? 'Downloading PDF...' : 'Download PDF Document'}
+                            </Text>
+                            <Ionicons name="download-outline" size={18} color="#FFFFFF" />
+                          </LinearGradient>
+                        </TouchableOpacity>
                       </LinearGradient>
                     </View>
                   )}
