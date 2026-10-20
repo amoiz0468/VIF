@@ -1,4 +1,4 @@
-# 🥖 Vif — The Real-Time Student Food Bridge
+# Vif — The Real-Time Student Food Bridge
 
 > Connecting French bakeries with students to turn end-of-day surplus into free, dignified meals — while rewarding bakeries with a tax benefit.
 
@@ -6,7 +6,7 @@
 
 ---
 
-## 📖 Overview
+## Overview
 
 **Vif** is a mobile platform that solves two real problems at once:
 
@@ -17,20 +17,20 @@ Vif is the missing real-time bridge between them. When a bakery has surplus, it 
 
 ---
 
-## ✨ Key Features
+## Key Features
 
 | Feature | Description |
 |---|---|
-| 🎓 **Student Verification** | OCR-based student ID verification; the ID image is discarded immediately after extraction (privacy by design). |
-| ⚡ **The Pulse Engine** | One-click surplus posting for bakeries — under 10 seconds, no typing. |
-| 📍 **Real-Time Geofencing** | Notifies verified students within a 1 km radius the moment a Pulse is posted. |
-| ⏱️ **The Karma Engine** | A 20-minute claim timer and reliability system that keeps distribution fair. |
-| 🔐 **Secure QR Handshake** | A challenge-response scan that confirms pickup and prevents fraud. |
-| 🧾 **Automated Tax Documents** | Generates a monthly Cerfa-format donation document for the bakery's accountant. |
+| **Student Verification** | OCR-based student ID verification; the ID image is discarded immediately after extraction (privacy by design). |
+| **The Pulse Engine** | One-click surplus posting for bakeries — under 10 seconds, no typing. |
+| **Real-Time Geofencing** | Notifies verified students within a 1 km radius the moment a Pulse is posted. |
+| **The Karma Engine** | A 20-minute claim timer and reliability system that keeps distribution fair. |
+| **Secure QR Handshake** | A challenge-response scan that confirms pickup and prevents fraud. |
+| **Automated Tax Documents** | Generates a monthly Cerfa-format donation document for the bakery's accountant. |
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 **Frontend (Web Portal)**
 - React + Vite
@@ -56,7 +56,7 @@ Vif is the missing real-time bridge between them. When a bakery has surplus, it 
 
 ---
 
-## ⚖️ Legal Framework
+## Legal Framework
 
 Vif operates within established French and European law:
 
@@ -70,7 +70,7 @@ Donations are anchored through a partner **Organisme d'Intérêt Général (OIG)
 
 ---
 
-## 📂 Documentation
+## Documentation
 
 This repository contains the complete project documentation set, organised into four families:
 
@@ -101,23 +101,22 @@ This repository contains the complete project documentation set, organised into 
 - Glossary & Acronyms
 - Documentation Index & Master Map
 
-> 📌 **Start with the _Documentation Index & Master Map_** — it lists every document, explains how they connect, and gives a recommended reading order.
+> **Start with the _Documentation Index & Master Map_** — it lists every document, explains how they connect, and gives a recommended reading order.
 
 ---
 
-## 🚀 Project Status
+## Project Status
 
 Vif is an EPITECH capstone project delivered over a twelve-week, three-sprint cycle, validated through a controlled pilot in a single Paris zone before any wider rollout.
 
 ---
 
-## 👥 Team
-
+## Team
 
 Delivered by a four-member engineering team organised by feature group (Auth & Security, Core API & Database, Mobile Core, Real-time & Geofencing).
 
 ---
 
-## 📄 License
+## License
 
 This project is developed for academic purposes as part of the EPITECH curriculum.

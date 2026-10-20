@@ -1,12 +1,12 @@
-# 🥖 Vif Web Portal
+# Vif Web Portal
 
 A responsive web application for **Vif — The Real-Time Student Food Bridge**, built with **Vite + React** and custom **Vanilla CSS** design system.
 
 ---
 
-## ✨ Features Implemented
+## Features Implemented
 
-### 🎓 Student Portal (`StudentPortal.jsx`)
+### Student Portal (`StudentPortal.jsx`)
 - **Paris Campus Radar & Zone Picker**: 1-click zone switcher (Sorbonne / Quartier Latin, Bastille, République, Le Marais, Montparnasse) or live browser GPS geolocation.
 - **Surplus Food Feed (`GET /pulses/nearby`)**: Displays bakery surplus packages within 1,000 meters with distance calculation, remaining quantities, and active 10-minute priority windows for verified students.
 - **1-Click Reservation & Live Challenge QR (`POST /claims/create`)**:
@@ -20,12 +20,12 @@ A responsive web application for **Vif — The Real-Time Student Food Bridge**, 
 
 ---
 
-### 🥖 Bakery / Shopkeeper Portal (`ShopkeeperPortal.jsx`)
+### Bakery / Shopkeeper Portal (`ShopkeeperPortal.jsx`)
 - **1-Click French Bakery Presets**: Instant surplus broadcasting in under 10 seconds without typing:
-  - 🥖 *10 Baguettes de Tradition*
-  - 🥐 *8 Croissants & Viennoiseries*
-  - 🥪 *5 Sandwiches & Quiches du Jour*
-  - 🍰 *6 Pâtisseries & Tartes*
+  - 10 Baguettes de Tradition
+  - 8 Croissants & Viennoiseries
+  - 5 Sandwiches & Quiches du Jour
+  - 6 Pâtisseries & Tartes
 - **1-Tap Surplus Broadcast (`POST /pulses`)**: Notifies all verified students within 1 km via FCM push alerts.
 - **QR Handshake Validation (`POST /validate-claim`)**: Instant check-in of student QR code or challenge token, completing the pickup, preventing student karma penalties, and recording the meal into the tax ledger.
 - **Cerfa n° 11580*05 Tax Deduction Engine**:
@@ -36,7 +36,7 @@ A responsive web application for **Vif — The Real-Time Student Food Bridge**, 
 
 ---
 
-### 🔐 Authentication & Quick-Test Demo Mode
+### Authentication & Quick-Test Demo Mode
 - **Dual Role Selector**: Switch between Student and Boulangerie view in one click.
 - **Instant Demo Pre-fill**: Quick login buttons for Student (`alexandre.dupont@epitech.eu`) and Bakery (`artisan@boulangerie-marais.fr`).
 - **Academic Email Validation**: Enforces `.edu`, `.eu`, `.ac.uk`, `.univ`.
@@ -44,7 +44,7 @@ A responsive web application for **Vif — The Real-Time Student Food Bridge**, 
 
 ---
 
-## 🚀 Running Locally
+## Running Locally
 
 ```bash
 cd web
