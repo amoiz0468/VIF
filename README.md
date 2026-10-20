@@ -32,6 +32,11 @@ Vif is the missing real-time bridge between them. When a bakery has surplus, it 
 
 ## 🛠️ Tech Stack
 
+**Frontend (Web Portal)**
+- React + Vite
+- Custom Vanilla CSS design system (Dark glassmorphism, responsive)
+- Live SVG QR Code generation, micro-animations, confetti celebrations
+
 **Frontend (Mobile)**
 - React Native / Expo (iOS & Android)
 - React Native Maps, Vision-Camera
