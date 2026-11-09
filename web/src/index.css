@@ -2110,71 +2110,115 @@ h1, h2, h3, h4 {
 
 /* Custom Marker - Student */
 .student-custom-marker-wrapper {
-  background: transparent;
-  border: none;
+  background: transparent !important;
+  border: none !important;
+}
+
+.student-marker-container {
+  position: relative;
+  width: 100px;
+  height: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
 }
 
 .student-marker-pulse-ring {
   position: absolute;
+  top: -4px;
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  background: rgba(59, 130, 246, 0.25);
+  background: rgba(59, 130, 246, 0.35);
   animation: student-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
 }
 
 @keyframes student-ping {
   75%, 100% {
-    transform: scale(1.6);
+    transform: scale(1.65);
     opacity: 0;
   }
 }
 
 .student-marker-core {
-  position: absolute;
-  top: 6px;
-  left: 6px;
-  width: 32px;
-  height: 32px;
+  position: relative;
+  z-index: 2;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
-  background: #3B82F6;
+  background: #2563EB;
   border: 3px solid #FFFFFF;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 10px rgba(59, 130, 246, 0.5);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.55);
   font-size: 16px;
+}
+
+.student-marker-label {
+  position: relative;
+  z-index: 3;
+  margin-top: 2px;
+  background: #1E3A8A;
+  color: #FFFFFF;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
 }
 
 /* Custom Marker - Boulangerie */
 .boulangerie-custom-marker-wrapper {
-  background: transparent;
-  border: none;
+  background: transparent !important;
+  border: none !important;
+}
+
+.boulangerie-marker-container {
+  position: relative;
+  width: 120px;
+  height: 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
 }
 
 .boulangerie-pin {
-  width: 40px;
-  height: 46px;
+  width: 36px;
+  height: 36px;
   background: #FFFFFF;
-  border: 2px solid #F59E0B;
-  border-radius: 20px 20px 20px 4px;
+  border: 2.5px solid #D97706;
+  border-radius: 18px 18px 18px 4px;
   transform: rotate(-45deg);
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.35);
+  box-shadow: 0 4px 12px rgba(217, 119, 6, 0.35);
   position: relative;
   cursor: pointer;
   transition: transform 0.2s ease;
 }
 
+.boulangerie-pin.partner-nearby-pin {
+  border-color: #10B981;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.35);
+}
+
+.boulangerie-pin.partner-far-pin {
+  border-color: #64748B;
+  opacity: 0.88;
+}
+
 .boulangerie-pin:hover {
-  transform: rotate(-45deg) scale(1.12);
+  transform: rotate(-45deg) scale(1.14);
 }
 
 .bakery-emoji {
   transform: rotate(45deg);
-  font-size: 18px;
+  font-size: 17px;
 }
 
 .boulangerie-badge {
@@ -2189,6 +2233,22 @@ h1, h2, h3, h4 {
   border-radius: 999px;
   border: 2px solid #FFFFFF;
   transform: rotate(45deg);
+}
+
+.boulangerie-marker-label {
+  margin-top: 3px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #0F172A;
+  border: 1px solid #CBD5E1;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+  max-width: 118px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.12);
 }
 
 /* Map Popups */

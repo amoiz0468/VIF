@@ -1,5 +1,32 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { MapPin, Navigation, Store, Sparkles, Layers, Maximize2, Minimize2 } from 'lucide-react';
+import { Maximize2, Minimize2 } from 'lucide-react';
+
+// Partner Boulangeries across Paris zones (shown on radar even when awaiting next surplus drop)
+const PARTNER_BOULANGERIES = [
+  { id: 'partner-1', shop_name: 'Boulangerie Poilâne du Marais', shop_address: '38 Rue de Bretagne, 75003 Paris', lat: 48.8615, lng: 2.3622 },
+  { id: 'partner-2', shop_name: 'Maison Landemaine Saint-Paul', shop_address: '26 Rue des Rosiers, 75004 Paris', lat: 48.8568, lng: 2.3585 },
+  { id: 'partner-3', shop_name: 'Du Pain et des Idées', shop_address: '34 Rue Yves Toudic, 75010 Paris', lat: 48.8710, lng: 2.3628 },
+  { id: 'partner-4', shop_name: 'Boulangerie Utopie', shop_address: '20 Rue Jean-Pierre Timbaud, 75011 Paris', lat: 48.8648, lng: 2.3682 },
+  { id: 'partner-5', shop_name: 'La Maison d’Isabelle', shop_address: '47ter Bd Saint-Germain, 75005 Paris', lat: 48.8502, lng: 2.3482 },
+  { id: 'partner-6', shop_name: 'Boulangerie Chambelland', shop_address: '14 Rue Ternaux, 75011 Paris', lat: 48.8625, lng: 2.3725 },
+  { id: 'partner-7', shop_name: 'Le Grenier à Pain Sorbonne', shop_address: '52 Avenue d’Italie / Quartier Latin, Paris', lat: 48.8465, lng: 2.3415 },
+  { id: 'partner-8', shop_name: 'Boulangerie Moderne Rabineau', shop_address: '16 Rue des Fossés Saint-Jacques, 75005 Paris', lat: 48.8452, lng: 2.3448 },
+  { id: 'partner-9', shop_name: 'Ten Belles Bread Bastille', shop_address: '17-19 Rue Breguet, 75011 Paris', lat: 48.8555, lng: 2.3718 },
+  { id: 'partner-10', shop_name: 'Maison Kayser Montparnasse', shop_address: '14 Rue du Départ, 75015 Paris', lat: 48.8428, lng: 2.3235 },
+  { id: 'partner-11', shop_name: 'Boulangerie Thierry Marx', shop_address: '51 Rue de Laborde / Vaugirard, Paris', lat: 48.8442, lng: 2.3185 },
+];
+
+// Calculate Haversine distance in meters between two lat/lng coordinates
+function getDistanceMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 export default function SurplusRadarMap({ 
   studentCoords, 
@@ -15,31 +42,31 @@ export default function SurplusRadarMap({
   const studentCircleRef = useRef(null);
   const studentMarkerRef = useRef(null);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [mapLoaded, setMapLoaded] = useState(false);
+  const [mapReady, setMapReady] = useState(false);
 
-  // Initialize or wait for Leaflet
+  // 1. Initialize Leaflet Map with free OpenStreetMap tiles (no API key required)
   useEffect(() => {
     let checkInterval;
+
     const initLeaflet = () => {
       if (window.L && mapContainerRef.current && !mapInstanceRef.current) {
         try {
           const L = window.L;
           const map = L.map(mapContainerRef.current, {
             center: [studentCoords.lat, studentCoords.lng],
-            zoom: 15,
+            zoom: 14,
             zoomControl: true,
           });
 
-          // CartoDB Voyager tiles - modern, clean, fast
-          L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+          // Standard OpenStreetMap tile server (100% free, no API key required)
+          L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
             maxZoom: 19,
-            subdomains: 'abcd',
           }).addTo(map);
 
           markersLayerRef.current = L.layerGroup().addTo(map);
           mapInstanceRef.current = map;
-          setMapLoaded(true);
+          setMapReady(true);
         } catch (err) {
           console.error('Failed to initialize Leaflet map:', err);
         }
@@ -63,115 +90,134 @@ export default function SurplusRadarMap({
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
         markersLayerRef.current = null;
+        studentMarkerRef.current = null;
+        studentCircleRef.current = null;
       }
     };
   }, []);
 
-  // Update Student Marker and 1km Geofence when coordinates change
+  // 2. Render Student Marker, 1km Geofence Circle, and Boulangerie Markers
   useEffect(() => {
-    if (!mapInstanceRef.current || !window.L || !studentCoords) return;
+    if (!mapReady || !mapInstanceRef.current || !window.L || !studentCoords) return;
     const L = window.L;
     const map = mapInstanceRef.current;
+    const markersLayer = markersLayerRef.current;
 
-    const studentLat = studentCoords.lat;
-    const studentLng = studentCoords.lng;
+    const studentLat = Number(studentCoords.lat);
+    const studentLng = Number(studentCoords.lng);
 
-    // Pan smoothly to updated student position
-    map.flyTo([studentLat, studentLng], 15, { duration: 1.2 });
+    // Smoothly fly to student's position
+    map.flyTo([studentLat, studentLng], 14, { duration: 1.0 });
 
-    // Custom animated student marker icon
+    // Student Icon
     const studentIcon = L.divIcon({
       className: 'student-custom-marker-wrapper',
       html: `
-        <div class="student-marker-pulse-ring"></div>
-        <div class="student-marker-core">
-          <span>🎓</span>
+        <div class="student-marker-container">
+          <div class="student-marker-pulse-ring"></div>
+          <div class="student-marker-core" title="Your Student Location">🎓</div>
+          <div class="student-marker-label">You (Student)</div>
         </div>
       `,
-      iconSize: [44, 44],
-      iconAnchor: [22, 22],
+      iconSize: [100, 56],
+      iconAnchor: [50, 28],
     });
 
     if (studentMarkerRef.current) {
       studentMarkerRef.current.setLatLng([studentLat, studentLng]);
+      studentMarkerRef.current.setIcon(studentIcon);
     } else {
-      studentMarkerRef.current = L.marker([studentLat, studentLng], { icon: studentIcon })
-        .addTo(map)
-        .bindTooltip(`<strong>You (Student)</strong><br/><span style="color:#64748B">${selectedZoneName}</span>`, {
-          direction: 'top',
-          offset: [0, -18],
-          className: 'map-tooltip-custom',
-        });
+      studentMarkerRef.current = L.marker([studentLat, studentLng], {
+        icon: studentIcon,
+        zIndexOffset: 1000,
+      }).addTo(map);
     }
 
-    // 1000m Geofence Radar Circle
+    studentMarkerRef.current.bindPopup(`
+      <div class="boulangerie-popup-card">
+        <div class="popup-header">
+          <h4 class="popup-title">🎓 Your Student Location</h4>
+        </div>
+        <p class="popup-address">${selectedZoneName}</p>
+        <div class="popup-item" style="background:#EFF6FF;border-color:#BFDBFE;color:#1E40AF;">
+          <strong>GPS:</strong> ${studentLat.toFixed(4)}° N, ${studentLng.toFixed(4)}° E<br/>
+          <span>Receiving instant alerts within 1,000m radius.</span>
+        </div>
+      </div>
+    `);
+
+    // 1,000m Geofence Radar Circle
     if (studentCircleRef.current) {
       studentCircleRef.current.setLatLng([studentLat, studentLng]);
     } else {
       studentCircleRef.current = L.circle([studentLat, studentLng], {
         radius: 1000,
-        color: '#F59E0B',
+        color: '#2563EB',
         weight: 2,
-        dashArray: '5, 8',
-        fillColor: '#F59E0B',
-        fillOpacity: 0.08,
+        dashArray: '6, 6',
+        fillColor: '#3B82F6',
+        fillOpacity: 0.10,
       }).addTo(map);
     }
-  }, [studentCoords, mapLoaded, selectedZoneName]);
 
-  // Update Boulangerie (Bakery) Markers when pulses change
-  useEffect(() => {
-    if (!mapInstanceRef.current || !markersLayerRef.current || !window.L) return;
-    const L = window.L;
-    const markersLayer = markersLayerRef.current;
+    // Clear and re-render Boulangerie markers
     markersLayer.clearLayers();
 
-    pulses.forEach((pulse) => {
-      // Use exact coordinates if provided by backend, or synthesize realistic proximity near student
-      let bLat = pulse.latitude;
-      let bLng = pulse.longitude;
+    // A) Render Live Surplus Pulses from Backend
+    const renderedShopNames = new Set();
+    pulses.forEach((pulse, idx) => {
+      let bLat = pulse.latitude ? Number(pulse.latitude) : null;
+      let bLng = pulse.longitude ? Number(pulse.longitude) : null;
 
       if (!bLat || !bLng) {
-        // Fallback approximation along distance if exact shop point was not stored
-        const offsetLat = ((pulse.pulse_id ? pulse.pulse_id.charCodeAt(0) % 7 - 3 : 1) * 0.002);
-        const offsetLng = ((pulse.pulse_id ? pulse.pulse_id.charCodeAt(1) % 7 - 3 : 1) * 0.003);
-        bLat = studentCoords.lat + offsetLat;
-        bLng = studentCoords.lng + offsetLng;
+        // Fallback offset around student if shop geometry wasn't set
+        const angle = (idx * 137.5 * Math.PI) / 180;
+        const distDeg = 0.0035;
+        bLat = studentLat + Math.cos(angle) * distDeg;
+        bLng = studentLng + Math.sin(angle) * distDeg;
       }
+
+      renderedShopNames.add((pulse.shop_name || '').toLowerCase());
+      const distMeters = Math.round(
+        pulse.distance_meters ?? getDistanceMeters(studentLat, studentLng, bLat, bLng)
+      );
 
       const bakeryIcon = L.divIcon({
         className: 'boulangerie-custom-marker-wrapper',
         html: `
-          <div class="boulangerie-pin">
-            <span class="bakery-emoji">🥖</span>
-            <span class="boulangerie-badge">${pulse.quantity_remaining}</span>
+          <div class="boulangerie-marker-container">
+            <div class="boulangerie-pin active-pulse-pin">
+              <span class="bakery-emoji">🥖</span>
+              <span class="boulangerie-badge">${pulse.quantity_remaining}</span>
+            </div>
+            <div class="boulangerie-marker-label">${pulse.shop_name}</div>
           </div>
         `,
-        iconSize: [42, 48],
-        iconAnchor: [21, 46],
+        iconSize: [120, 62],
+        iconAnchor: [60, 48],
       });
 
       const popupHtml = `
         <div class="boulangerie-popup-card">
           <div class="popup-header">
-            <h4 class="popup-title">${pulse.shop_name}</h4>
-            <span class="popup-dist">${Math.round(pulse.distance_meters ?? 0)}m</span>
+            <h4 class="popup-title">🥖 ${pulse.shop_name}</h4>
+            <span class="popup-dist">${distMeters}m</span>
           </div>
-          <p class="popup-address">${pulse.shop_address || 'Paris'}</p>
+          <p class="popup-address">📍 ${pulse.shop_address || 'Paris'}</p>
           <div class="popup-item">
             <strong>${pulse.item_name}</strong>
             ${pulse.description ? `<p class="popup-desc">${pulse.description}</p>` : ''}
           </div>
           <div class="popup-footer">
-            <span class="popup-qty">${pulse.quantity_remaining} left</span>
+            <span class="popup-qty">● ${pulse.quantity_remaining} baskets available</span>
             <button class="popup-claim-btn" id="claim-btn-${pulse.pulse_id}" ${activeClaim || claimLoading || pulse.quantity_remaining <= 0 ? 'disabled' : ''}>
-              Claim Meal
+              Claim Free Meal
             </button>
           </div>
         </div>
       `;
 
-      const marker = L.marker([bLat, bLng], { icon: bakeryIcon })
+      const marker = L.marker([bLat, bLng], { icon: bakeryIcon, zIndexOffset: 500 })
         .addTo(markersLayer)
         .bindPopup(popupHtml, {
           className: 'boulangerie-popup-wrapper',
@@ -179,7 +225,6 @@ export default function SurplusRadarMap({
           offset: [0, -32],
         });
 
-      // Attach claim button click handler when popup opens
       marker.on('popupopen', () => {
         const btn = document.getElementById(`claim-btn-${pulse.pulse_id}`);
         if (btn) {
@@ -190,9 +235,56 @@ export default function SurplusRadarMap({
         }
       });
     });
-  }, [pulses, studentCoords, mapLoaded, activeClaim, claimLoading, onClaimPulse]);
 
-  // Handle Resize on Expand/Collapse
+    // B) Also render nearby Partner Boulangeries on the map so student always sees bakeries around them
+    PARTNER_BOULANGERIES.forEach((partner) => {
+      if (renderedShopNames.has(partner.shop_name.toLowerCase())) return;
+
+      const distMeters = Math.round(getDistanceMeters(studentLat, studentLng, partner.lat, partner.lng));
+      const inGeofence = distMeters <= 1200;
+
+      const partnerIcon = L.divIcon({
+        className: 'boulangerie-custom-marker-wrapper',
+        html: `
+          <div class="boulangerie-marker-container">
+            <div class="boulangerie-pin ${inGeofence ? 'partner-nearby-pin' : 'partner-far-pin'}">
+              <span class="bakery-emoji">🥐</span>
+            </div>
+            <div class="boulangerie-marker-label">${partner.shop_name}</div>
+          </div>
+        `,
+        iconSize: [120, 58],
+        iconAnchor: [60, 44],
+      });
+
+      const popupHtml = `
+        <div class="boulangerie-popup-card">
+          <div class="popup-header">
+            <h4 class="popup-title">🥐 ${partner.shop_name}</h4>
+            <span class="popup-dist">${distMeters}m away</span>
+          </div>
+          <p class="popup-address">📍 ${partner.shop_address}</p>
+          <div class="popup-item">
+            <strong>Vif Partner Boulangerie</strong>
+            <p class="popup-desc">
+              ${inGeofence 
+                ? 'Inside your 1km geofence! You will be notified immediately when surplus is posted.' 
+                : 'Partner bakery in Paris. Move closer or select this zone to enter its 1km priority radar.'}
+            </p>
+          </div>
+        </div>
+      `;
+
+      L.marker([partner.lat, partner.lng], { icon: partnerIcon })
+        .addTo(markersLayer)
+        .bindPopup(popupHtml, {
+          className: 'boulangerie-popup-wrapper',
+          maxWidth: 260,
+          offset: [0, -28],
+        });
+    });
+  }, [mapReady, studentCoords, pulses, selectedZoneName, activeClaim, claimLoading, onClaimPulse]);
+
   const toggleExpand = () => {
     setIsExpanded((prev) => !prev);
     setTimeout(() => {
@@ -207,18 +299,21 @@ export default function SurplusRadarMap({
       <div className="radar-map-header">
         <div className="radar-map-title-row">
           <div className="radar-live-dot"></div>
-          <span className="radar-map-title">Interactive Surplus Geofence Radar</span>
+          <span className="radar-map-title">Live Map: Student &amp; Boulangerie Locations</span>
           <span className="badge badge-amber" style={{ fontSize: '0.75rem', padding: '2px 8px' }}>
-            &lt; 1,000m Geofence
+            1,000m Radar
           </span>
         </div>
 
         <div className="radar-map-controls">
           <span className="radar-legend-item">
-            <span className="legend-dot legend-student"></span> You (Student)
+            <span className="legend-dot legend-student"></span> 🎓 You (Student)
           </span>
           <span className="radar-legend-item">
-            <span className="legend-dot legend-bakery"></span> Boulangeries ({pulses.length})
+            <span className="legend-dot legend-bakery"></span> 🥖 Active Surplus ({pulses.length})
+          </span>
+          <span className="radar-legend-item">
+            <span className="legend-dot" style={{ background: '#10B981' }}></span> 🥐 Partner Boulangeries
           </span>
           <button 
             type="button" 
@@ -234,16 +329,15 @@ export default function SurplusRadarMap({
       </div>
 
       <div className="map-view-container" ref={mapContainerRef}>
-        {!mapLoaded && (
+        {!mapReady && (
           <div className="map-loading-overlay">
-            <div className="spin-loader"></div>
-            <p>Loading Paris Map Radar...</p>
+            <p>Loading OpenStreetMap Paris Radar...</p>
           </div>
         )}
       </div>
 
       <div className="radar-map-footer-hint">
-        <span>📍 <strong>Circle:</strong> 1 km priority notification zone. Click any bakery pin 🥖 to view available food and claim directly.</span>
+        <span>📍 <strong>Blue Circle:</strong> Your 1 km student geofence ({studentCoords.lat.toFixed(4)}°N, {studentCoords.lng.toFixed(4)}°E). Click any boulangerie pin (🥖 / 🥐) to inspect its address, distance, and available meals.</span>
       </div>
     </div>
   );
