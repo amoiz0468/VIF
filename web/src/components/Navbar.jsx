@@ -1,7 +1,6 @@
 import React from 'react';
 import {
   Store,
-  GraduationCap,
   LogOut,
   Sparkles,
   ShieldCheck,
@@ -10,6 +9,10 @@ import {
   MapPin,
   History,
   User as UserIcon,
+  Send,
+  QrCode,
+  FileText,
+  Layers,
 } from 'lucide-react';
 
 const STUDENT_PAGES = [
@@ -20,6 +23,14 @@ const STUDENT_PAGES = [
   { path: '/student/profile', label: 'Profile', icon: UserIcon },
 ];
 
+const BAKERY_PAGES = [
+  { path: '/bakery/pulse', label: 'Surplus Pulse', icon: Send },
+  { path: '/bakery/validate', label: 'Validate QR', icon: QrCode },
+  { path: '/bakery/history', label: 'Bakery History', icon: History },
+  { path: '/bakery/tax', label: 'Cerfa Tax Docs', icon: FileText },
+  { path: '/bakery/profile', label: 'Store & Costs', icon: Layers },
+];
+
 export default function Navbar({
   user,
   onLogout,
@@ -28,13 +39,23 @@ export default function Navbar({
   onNavigatePage,
   karmaScore = 50,
 }) {
+  const navPages =
+    user?.role === 'student'
+      ? STUDENT_PAGES
+      : user?.role === 'shopkeeper'
+      ? BAKERY_PAGES
+      : [];
+
+  const homePath = user?.role === 'student' ? '/student/radar' : '/bakery/pulse';
+  const profilePath = user?.role === 'student' ? '/student/profile' : '/bakery/profile';
+
   return (
     <header className="navbar glass-panel">
       <div className="navbar-left">
         <div
           className="logo-container"
-          style={{ cursor: 'pointer' }}
-          onClick={() => user?.role === 'student' && onNavigatePage && onNavigatePage('/student/radar')}
+          style={{ cursor: user ? 'pointer' : 'default' }}
+          onClick={() => user && onNavigatePage && onNavigatePage(homePath)}
         >
           <div className="logo-icon-pulse">
             <span className="logo-emoji">🥖</span>
@@ -51,9 +72,9 @@ export default function Navbar({
       </div>
 
       <div className="navbar-center">
-        {user && user.role === 'student' ? (
+        {user && navPages.length > 0 && (
           <nav
-            aria-label="Student Portal Pages"
+            aria-label="Portal Pages"
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -65,7 +86,7 @@ export default function Navbar({
               border: '1px solid #E2E8F0',
             }}
           >
-            {STUDENT_PAGES.map((page) => {
+            {navPages.map((page) => {
               const Icon = page.icon;
               const isActive = currentPath === page.path;
               return (
@@ -97,14 +118,6 @@ export default function Navbar({
               );
             })}
           </nav>
-        ) : (
-          user && (
-            <div className="role-indicator-badge">
-              <span className="badge badge-amber">
-                <Store size={15} /> Bakery Portal
-              </span>
-            </div>
-          )
         )}
       </div>
 
@@ -129,7 +142,12 @@ export default function Navbar({
                 )}
               </div>
             ) : (
-              <div className="bakery-badge-pill">
+              <div
+                className="bakery-badge-pill"
+                style={{ cursor: 'pointer' }}
+                onClick={() => onNavigatePage && onNavigatePage('/bakery/profile')}
+                title="Open Store & Cost Matrix Page"
+              >
                 <Store size={15} color="#F59E0B" />
                 <span className="bakery-name-text">
                   {user.shop_name || 'Boulangerie Parisienne'}
@@ -141,9 +159,9 @@ export default function Navbar({
             <div className="user-account-dropdown">
               <span
                 className="user-email-text"
-                style={{ cursor: user.role === 'student' ? 'pointer' : 'default' }}
-                onClick={() => user.role === 'student' && onNavigatePage && onNavigatePage('/student/profile')}
-                title={user.role === 'student' ? 'Open Student Profile Page' : undefined}
+                style={{ cursor: 'pointer' }}
+                onClick={() => onNavigatePage && onNavigatePage(profilePath)}
+                title="Open Profile Page"
               >
                 {user.full_name || user.email}
               </span>

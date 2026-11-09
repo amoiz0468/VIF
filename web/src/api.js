@@ -149,4 +149,17 @@ export const api = {
       method: 'POST',
     });
   },
+
+  getBakeryHistory: async () => {
+    return await request('/shopkeeper/history');
+  },
+
+  updateBakeryProfile: async (payload) => {
+    const updatedUser = await request('/shopkeeper/profile', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+    setStoredUser(updatedUser);
+    return updatedUser;
+  },
 };
