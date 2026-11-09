@@ -40,3 +40,4 @@ jobs:
         run: |
           git remote add epitech "https://x-access-token:${PAT_TOKEN}@github.com/EpitechMscInternationalPromo2027/I-YEP-800-INT-7-1-capstone-7.git" || git remote set-url epitech "https://x-access-token:${PAT_TOKEN}@github.com/EpitechMscInternationalPromo2027/I-YEP-800-INT-7-1-capstone-7.git"
           git push epitech "refs/remotes/origin/*:refs/heads/*" --tags --force --prune
+
