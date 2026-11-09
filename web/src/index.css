@@ -1977,9 +1977,29 @@ h1, h2, h3, h4 {
   color: var(--text-muted);
 }
 
-/* Responsive */
+/* Floating Mobile Bottom Dock Navbar (Hidden on Desktop) */
+.mobile-bottom-dock {
+  display: none;
+}
+
+/* Responsive (Tablet & Mobile across Landing Page, Student Portal & Bakery Portal) */
+@media (max-width: 1120px) {
+  .navbar {
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 12px 18px;
+    margin: 10px 16px;
+  }
+  .navbar-center {
+    order: 3;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+  }
+}
+
 @media (max-width: 1024px) {
-  .hero-friendly-grid { grid-template-columns: 1fr; }
+  .hero-friendly-grid { grid-template-columns: 1fr; gap: 28px; }
   .metrics-banner-section { grid-template-columns: 1fr 1fr; }
   .steps-timeline-grid { grid-template-columns: 1fr; }
   .engines-grid-4 { grid-template-columns: 1fr; }
@@ -1987,13 +2007,390 @@ h1, h2, h3, h4 {
   .portal-grid { grid-template-columns: 1fr; }
   .pulse-composer-grid { grid-template-columns: 1fr; }
   .tax-grid { grid-template-columns: 1fr; }
+
+  .portal-header, .bakery-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 18px;
+    padding: 20px 22px;
+  }
+  .karma-stat-card {
+    width: 100%;
+  }
+  .tax-summary-cards {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .tax-metric-card {
+    flex: 1;
+    min-width: 130px;
+    text-align: left;
+  }
 }
 
 @media (max-width: 768px) {
-  .navbar { margin: 8px; padding: 12px 16px; flex-direction: column; gap: 12px; }
-  .hero-friendly-title { font-size: 2.2rem; }
-  .metrics-banner-section { grid-template-columns: 1fr; }
-  .footer-content { grid-template-columns: 1fr; gap: 24px; }
+  .main-content {
+    padding: 10px 12px 104px;
+  }
+  .landing-container {
+    gap: 32px;
+  }
+
+  /* Compact single-row Top Header on Mobile (pages move to bottom dock) */
+  .navbar {
+    position: sticky;
+    top: 8px;
+    margin: 8px 10px;
+    padding: 10px 14px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .desktop-only-nav {
+    display: none !important;
+  }
+  .navbar-left {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    flex: 1;
+  }
+  .logo-subtitle {
+    display: none;
+  }
+  .navbar-right {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .user-profile-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .karma-badge-pill, .bakery-badge-pill {
+    font-size: 0.75rem;
+    padding: 5px 10px;
+    white-space: nowrap;
+  }
+  .auth-buttons {
+    display: flex;
+    gap: 6px;
+  }
+  .auth-buttons .btn {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+  }
+
+  /* Floating Bottom Dock Navbar on Mobile */
+  .mobile-bottom-dock {
+    display: flex;
+    justify-content: center;
+    position: fixed;
+    left: 10px;
+    right: 10px;
+    bottom: 12px;
+    z-index: 950;
+    pointer-events: none;
+  }
+  .mobile-bottom-dock-inner {
+    pointer-events: auto;
+    width: 100%;
+    max-width: 460px;
+    background: rgba(15, 23, 42, 0.94);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 999px;
+    padding: 8px 10px;
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    box-shadow: 0 16px 36px rgba(2, 6, 23, 0.45);
+  }
+  .mobile-dock-item {
+    position: relative;
+    background: transparent;
+    border: none;
+    color: #94A3B8;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 4px 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: var(--font-body);
+    flex: 1;
+    min-width: 0;
+  }
+  .mobile-dock-icon-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 30px;
+    border-radius: 50%;
+    transition: all 0.2s ease;
+  }
+  .mobile-dock-item.featured .mobile-dock-icon-wrap {
+    width: 40px;
+    height: 40px;
+    margin-top: -10px;
+    background: linear-gradient(135deg, #F59E0B 0%, #D97706 100%);
+    color: #FFFFFF;
+    box-shadow: 0 6px 16px rgba(245, 158, 11, 0.45);
+  }
+  .mobile-dock-live-dot {
+    position: absolute;
+    top: -1px;
+    right: -1px;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #10B981;
+    border: 2px solid #0F172A;
+  }
+  .mobile-dock-item.active {
+    color: #FFFFFF;
+  }
+  .mobile-dock-item.active:not(.featured) .mobile-dock-icon-wrap {
+    color: #FBBF24;
+  }
+  .mobile-dock-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+  .mobile-dock-active-dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: #F59E0B;
+    margin-top: 1px;
+  }
+
+  /* Landing page sections on mobile */
+  .hero-friendly-section {
+    padding: 26px 18px 24px;
+    border-radius: var(--radius-lg);
+  }
+  .hero-friendly-title {
+    font-size: 1.85rem;
+    line-height: 1.2;
+  }
+  .hero-friendly-subtitle {
+    font-size: 0.96rem;
+    margin-bottom: 20px;
+  }
+  .hero-cta-buttons-row {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .hero-cta-buttons-row .btn {
+    width: 100%;
+  }
+  .hero-visual-card {
+    padding: 16px;
+  }
+  .floating-pulse-card {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .metrics-banner-section {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .how-it-works-section,
+  .faqs-section,
+  .gdpr-hub-section,
+  .pre-footer-cta {
+    padding: 24px 16px;
+    border-radius: var(--radius-lg);
+  }
+  .section-heading-big,
+  .pre-footer-cta h3 {
+    font-size: 1.55rem;
+  }
+  .journey-tab-switch {
+    max-width: 100%;
+  }
+  .journey-tab-btn {
+    font-size: 0.82rem;
+    padding: 8px 10px;
+  }
+  .engine-card,
+  .step-card {
+    padding: 18px;
+  }
+  .cta-button-group {
+    flex-direction: column;
+  }
+  .cta-button-group .btn {
+    width: 100%;
+  }
+
+  /* Student & Bakery Portal Panels on Mobile */
+  .portal-title {
+    font-size: 1.4rem;
+  }
+  .portal-desc {
+    font-size: 0.88rem;
+  }
+  .presets-panel,
+  .composer-panel,
+  .validate-panel,
+  .tax-summary-panel,
+  .tax-legal-panel,
+  .settings-panel,
+  .verification-card,
+  .safety-info-card {
+    padding: 16px !important;
+  }
+  .glass-panel {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  /* Forms & 2-column rows stack on mobile */
+  .form-row-2 {
+    grid-template-columns: 1fr !important;
+    gap: 12px;
+  }
+  .input-with-action {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+  .input-with-action .btn {
+    width: 100% !important;
+  }
+  .toggle-donation-box {
+    flex-direction: column;
+    align-items: flex-start !important;
+    gap: 8px;
+  }
+
+  /* Active Claim QR Banner on Mobile */
+  .active-claim-banner {
+    padding: 16px;
+  }
+  .active-claim-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .active-claim-body {
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+  }
+  .qr-code-wrapper {
+    width: 100%;
+    max-width: 240px;
+  }
+  .claim-details-col {
+    width: 100%;
+  }
+  .claim-actions-row {
+    flex-direction: column;
+    width: 100%;
+  }
+  .claim-actions-row .btn {
+    width: 100%;
+  }
+
+  /* Pulse Cards on Mobile */
+  .pulse-card {
+    padding: 16px;
+  }
+  .pulse-card-top {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .pulse-badges {
+    flex-wrap: wrap;
+  }
+  .pulse-card-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+  .pulse-card-footer > div {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .pulse-card-footer .btn {
+    flex: 1;
+  }
+
+  /* Map container on mobile */
+  .map-view-container {
+    height: 280px;
+  }
+  .radar-map-expanded .map-view-container {
+    height: 380px;
+  }
+
+  /* Auth Modal on Mobile */
+  .modal-backdrop {
+    padding: 10px;
+  }
+  .modal-content {
+    padding: 20px 16px;
+    max-height: 94vh;
+  }
+  .role-selector-cards {
+    grid-template-columns: 1fr;
+  }
+
+  /* Toast on Mobile (sits above floating bottom dock) */
+  .toast-notification {
+    left: 12px;
+    right: 12px;
+    bottom: 84px;
+    font-size: 0.84rem;
+    padding: 12px 14px;
+  }
+
+  /* Footer on Mobile */
+  .footer {
+    margin: 24px 10px 88px;
+    padding: 24px 18px 16px;
+  }
+  .footer-content {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+}
+
+@media (max-width: 480px) {
+  .logo-title {
+    font-size: 1.35rem;
+  }
+  .logo-subtitle {
+    display: none;
+  }
+  .hero-friendly-title {
+    font-size: 1.6rem;
+  }
+  .tax-summary-cards {
+    flex-direction: column;
+  }
+  .preset-card {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
 }
 
 /* ==========================================================================

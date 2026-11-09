@@ -133,7 +133,16 @@ export default function StudentMapPage({
             borderTop: '1px solid #F1F5F9',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.86rem', color: '#0F172A' }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              flexWrap: 'wrap',
+              fontSize: '0.86rem',
+              color: '#0F172A',
+            }}
+          >
             <span className="badge badge-indigo" style={{ padding: '3px 8px' }}>
               🎓 Exact Student Location
             </span>
@@ -145,7 +154,14 @@ export default function StudentMapPage({
 
           <form
             onSubmit={onAddressSearch}
-            style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: '1', maxWidth: '360px' }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              flex: '1 1 260px',
+              width: '100%',
+              maxWidth: '420px',
+            }}
           >
             <input
               type="text"
@@ -153,13 +169,13 @@ export default function StudentMapPage({
               placeholder="Enter exact street (e.g. 40 rue du Dr Roux, Paris)..."
               value={addressQuery}
               onChange={(e) => setAddressQuery(e.target.value)}
-              style={{ padding: '6px 10px', fontSize: '0.8rem', height: '32px' }}
+              style={{ padding: '6px 10px', fontSize: '0.8rem', height: '34px' }}
             />
             <button
               type="submit"
               className="btn btn-primary btn-sm"
               disabled={searchingAddress}
-              style={{ height: '32px', padding: '0 12px', whiteSpace: 'nowrap' }}
+              style={{ height: '34px', padding: '0 12px', whiteSpace: 'nowrap' }}
             >
               {searchingAddress ? '...' : 'Set Address'}
             </button>

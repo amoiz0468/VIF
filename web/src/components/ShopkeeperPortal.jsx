@@ -66,6 +66,8 @@ export default function ShopkeeperPortal({
   const [validatedClaim, setValidatedClaim] = useState(null);
 
   // Shop profile & cost matrix state
+  const [ownerName, setOwnerName] = useState(user?.full_name || 'Artisan Baker');
+  const [ownerEmail, setOwnerEmail] = useState(user?.email || '');
   const [shopName, setShopName] = useState(user?.shop_name || 'Boulangerie Partner');
   const [shopAddress, setShopAddress] = useState(
     user?.shop_address || '51 Rue de Vaugirard, 75015 Paris'
@@ -295,6 +297,8 @@ export default function ShopkeeperPortal({
     setSavingSettings(true);
     try {
       const updatedUser = await api.updateBakeryProfile({
+        full_name: ownerName,
+        email: ownerEmail,
         shop_name: shopName,
         shop_address: shopAddress,
         phone: shopPhone,
@@ -439,6 +443,10 @@ export default function ShopkeeperPortal({
       ) : currentPath === '/bakery/profile' ? (
         <BakeryProfilePage
           user={user}
+          ownerName={ownerName}
+          setOwnerName={setOwnerName}
+          ownerEmail={ownerEmail}
+          setOwnerEmail={setOwnerEmail}
           shopName={shopName}
           setShopName={setShopName}
           shopAddress={shopAddress}

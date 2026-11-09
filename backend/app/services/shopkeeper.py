@@ -484,6 +484,24 @@ def update_bakery_profile(
     """Update bakery shopkeeper profile and shop details in PostgreSQL."""
     shop = get_or_create_shop(db, current_user)
 
+    if payload.full_name is not None:
+        current_user.full_name = payload.full_name.strip()
+
+    if payload.email is not None and payload.email.strip():
+        new_email = payload.email.strip().lower()
+        if new_email != current_user.email:
+            existing = (
+                db.query(models.User)
+                .filter(models.User.email == new_email, models.User.id != current_user.id)
+                .first()
+            )
+            if existing:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Email is already in use by another account",
+                )
+            current_user.email = new_email
+
     if payload.shop_name is not None and payload.shop_name.strip():
         shop.name = payload.shop_name.strip()
         current_user.shop_name = payload.shop_name.strip()

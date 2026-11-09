@@ -368,6 +368,8 @@ class BakeryHistoryResponse(BaseModel):
 
 
 class BakeryProfileUpdate(BaseModel):
+    full_name: Optional[str] = None
+    email: Optional[EmailStr] = None
     shop_name: Optional[str] = None
     shop_address: Optional[str] = None
     phone: Optional[str] = None
