@@ -64,6 +64,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def bootstrap_background_workers() -> None:
+    student_portal_service.ensure_partner_boulangeries_seeded(database.SessionLocal)
     karma_engine.bootstrap_pending_claim_tasks(database.SessionLocal)
 
 @app.post("/signup", response_model=schemas.User)

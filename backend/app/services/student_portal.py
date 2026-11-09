@@ -640,3 +640,178 @@ def register_location(
     db.commit()
     db.refresh(student_location)
     return student_location
+
+
+PARTNER_BOULANGERIES_SEED = [
+    {
+        "email": "poilane.marais@vif-bakery.fr",
+        "shop_name": "Boulangerie Poilâne du Marais",
+        "shop_address": "38 Rue de Bretagne, 75003 Paris",
+        "siret": "31298471000018",
+        "lat": 48.8615,
+        "lng": 2.3622,
+        "item_name": "10 Baguettes de Tradition & Pains au Levain",
+        "description": "Baguettes traditionnelles au levain croustillantes, cuites dans l’après-midi.",
+        "quantity": 8,
+    },
+    {
+        "email": "landemaine.saintpaul@vif-bakery.fr",
+        "shop_name": "Maison Landemaine Saint-Paul",
+        "shop_address": "26 Rue des Rosiers, 75004 Paris",
+        "siret": "49821735000024",
+        "lat": 48.8568,
+        "lng": 2.3585,
+        "item_name": "8 Croissants & Viennoiseries Pur Beurre",
+        "description": "Assortiment de croissants artisanaux, pains au chocolat et brioches.",
+        "quantity": 6,
+    },
+    {
+        "email": "tenbelles.bastille@vif-bakery.fr",
+        "shop_name": "Ten Belles Bread Bastille",
+        "shop_address": "17-19 Rue Breguet, 75011 Paris",
+        "siret": "52190843000019",
+        "lat": 48.8555,
+        "lng": 2.3718,
+        "item_name": "Panier Sandwiches & Focaccias Bio",
+        "description": "Sandwiches frais au levain naturel, focaccias aux herbes et quiches du jour.",
+        "quantity": 5,
+    },
+    {
+        "email": "isabelle.sorbonne@vif-bakery.fr",
+        "shop_name": "La Maison d’Isabelle",
+        "shop_address": "47ter Bd Saint-Germain, 75005 Paris",
+        "siret": "41289301000015",
+        "lat": 48.8502,
+        "lng": 2.3482,
+        "item_name": "Lot de Croissants Primés & Pâtisseries",
+        "description": "Croissants pur beurre bio (1er prix Paris) et tartelettes aux fruits.",
+        "quantity": 9,
+    },
+    {
+        "email": "rabineau.quartierlatin@vif-bakery.fr",
+        "shop_name": "Boulangerie Moderne Rabineau",
+        "shop_address": "16 Rue des Fossés Saint-Jacques, 75005 Paris",
+        "siret": "38912045000021",
+        "lat": 48.8452,
+        "lng": 2.3448,
+        "item_name": "6 Sandwiches Baguette & Pains Spéciaux",
+        "description": "Sandwiches jambon-beurre-emmental et pains complets bio.",
+        "quantity": 6,
+    },
+    {
+        "email": "dupainetdesidees.republique@vif-bakery.fr",
+        "shop_name": "Du Pain et des Idées",
+        "shop_address": "34 Rue Yves Toudic, 75010 Paris",
+        "siret": "44109283000012",
+        "lat": 48.8710,
+        "lng": 2.3628,
+        "item_name": "Escargots Chocolat-Pistache & Pain des Amis",
+        "description": "Spécialités feuilletées et pavés de pain des amis au levain.",
+        "quantity": 7,
+    },
+    {
+        "email": "utopie.republique@vif-bakery.fr",
+        "shop_name": "Boulangerie Utopie",
+        "shop_address": "20 Rue Jean-Pierre Timbaud, 75011 Paris",
+        "siret": "79823410000016",
+        "lat": 48.8648,
+        "lng": 2.3682,
+        "item_name": "Baguettes Charbon & Pâtisseries Créatives",
+        "description": "Assortiment de pains spéciaux et viennoiseries artisanales de fin de journée.",
+        "quantity": 5,
+    },
+    {
+        "email": "kayser.montparnasse@vif-bakery.fr",
+        "shop_name": "Maison Kayser Montparnasse",
+        "shop_address": "14 Rue du Départ, 75015 Paris",
+        "siret": "40918273000033",
+        "lat": 48.8428,
+        "lng": 2.3235,
+        "item_name": "Panier Repas Étudiant: Sandwich + Dessert",
+        "description": "Grand sandwich céréales, flan pâtissier artisanal et petite baguette.",
+        "quantity": 10,
+    },
+    {
+        "email": "thierrymarx.vaugirard@vif-bakery.fr",
+        "shop_name": "Boulangerie Thierry Marx",
+        "shop_address": "51 Rue de Vaugirard, 75015 Paris",
+        "siret": "81290345000011",
+        "lat": 48.8442,
+        "lng": 2.3185,
+        "item_name": "Breadmakis & Pains de Campagne Bio",
+        "description": "Créations boulangères bio et miches de pain au levain naturel.",
+        "quantity": 6,
+    },
+]
+
+
+def ensure_partner_boulangeries_seeded(session_factory: sessionmaker) -> None:
+    """Ensure Paris partner bakeries and active surplus pulses exist in PostgreSQL so map and feed match."""
+    now = datetime.now(timezone.utc)
+    expires = now + timedelta(hours=24)
+    created = now - timedelta(minutes=15)
+
+    try:
+        with session_factory() as db:
+            for item in PARTNER_BOULANGERIES_SEED:
+                shop = db.query(models.Shop).filter(models.Shop.siret == item["siret"]).first()
+                if not shop:
+                    owner = db.query(models.User).filter(models.User.email == item["email"]).first()
+                    if not owner:
+                        owner = models.User(
+                            email=item["email"],
+                            hashed_password="seeded_partner_account",
+                            role=models.UserRole.SHOPKEEPER.value,
+                            is_verified=True,
+                            id_verification_status="verified",
+                            shop_name=item["shop_name"],
+                            shop_address=item["shop_address"],
+                            siret=item["siret"],
+                        )
+                        db.add(owner)
+                        db.flush()
+
+                    shop = models.Shop(
+                        owner_user_id=owner.id,
+                        name=item["shop_name"],
+                        siret=item["siret"],
+                        address=item["shop_address"],
+                        location=WKTElement(f"POINT({item['lng']} {item['lat']})", srid=4326),
+                        inventory_costs={"baguette": 0.45, "croissant": 0.50, "sandwich": 1.25},
+                    )
+                    db.add(shop)
+                    db.flush()
+                else:
+                    # Ensure location is set
+                    shop.location = WKTElement(f"POINT({item['lng']} {item['lat']})", srid=4326)
+                    shop.address = item["shop_address"]
+                    db.add(shop)
+
+                # Ensure an active pulse exists for this shop
+                active_pulse = (
+                    db.query(models.Pulse)
+                    .filter(models.Pulse.shop_id == shop.id)
+                    .first()
+                )
+                if not active_pulse:
+                    pulse = models.Pulse(
+                        shop_id=shop.id,
+                        type=models.PulseType.DONATION.value,
+                        item_name=item["item_name"],
+                        description=item["description"],
+                        is_donation=True,
+                        quantity=item["quantity"],
+                        quantity_remaining=item["quantity"],
+                        created_at=created,
+                        expires_at=expires,
+                    )
+                    db.add(pulse)
+                else:
+                    if _ensure_aware_utc(active_pulse.expires_at) <= now or (active_pulse.quantity_remaining or 0) <= 0:
+                        active_pulse.expires_at = expires
+                        active_pulse.quantity_remaining = item["quantity"]
+                        db.add(active_pulse)
+
+            db.commit()
+    except Exception:
+        log.exception("Failed to seed partner boulangeries")
