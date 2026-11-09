@@ -5,7 +5,14 @@ import StudentPortal from './components/StudentPortal';
 import ShopkeeperPortal from './components/ShopkeeperPortal';
 import AuthModal from './components/AuthModal';
 import Footer from './components/Footer';
-import { api, getStoredUser, getStoredToken, removeStoredToken, removeStoredUser, setStoredUser } from './api';
+import {
+  api,
+  getStoredUser,
+  getStoredToken,
+  removeStoredToken,
+  removeStoredUser,
+  setStoredUser,
+} from './api';
 
 const VALID_STUDENT_PATHS = [
   '/student/radar',
@@ -15,18 +22,28 @@ const VALID_STUDENT_PATHS = [
   '/student/profile',
 ];
 
-function resolveStudentPath(pathname) {
-  if (VALID_STUDENT_PATHS.includes(pathname)) {
-    return pathname;
+const VALID_BAKERY_PATHS = [
+  '/bakery/pulse',
+  '/bakery/items',
+  '/bakery/validate',
+  '/bakery/history',
+  '/bakery/tax',
+  '/bakery/profile',
+];
+
+function resolvePathForUser(pathname, user) {
+  if (!user) return '/';
+  if (user.role === 'student') {
+    return VALID_STUDENT_PATHS.includes(pathname) ? pathname : '/student/radar';
   }
-  return '/student/radar';
+  return VALID_BAKERY_PATHS.includes(pathname) ? pathname : '/bakery/pulse';
 }
 
 export default function App() {
   const [user, setUser] = useState(() => getStoredUser());
   const [initialLoading, setInitialLoading] = useState(true);
   const [currentPath, setCurrentPath] = useState(() =>
-    resolveStudentPath(window.location.pathname)
+    resolvePathForUser(window.location.pathname, getStoredUser())
   );
 
   // Modal State
@@ -37,14 +54,14 @@ export default function App() {
   // Sync browser URL back/forward navigation
   useEffect(() => {
     const handlePopState = () => {
-      setCurrentPath(resolveStudentPath(window.location.pathname));
+      setCurrentPath(resolvePathForUser(window.location.pathname, user));
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
+  }, [user]);
 
-  const handleNavigatePage = (nextPath) => {
-    const target = resolveStudentPath(nextPath);
+  const handleNavigatePage = (nextPath, forUser = user) => {
+    const target = resolvePathForUser(nextPath, forUser);
     if (window.location.pathname !== target) {
       window.history.pushState({}, '', target);
     }
@@ -61,13 +78,11 @@ export default function App() {
           const profile = await api.getCurrentUser();
           setUser(profile);
           setStoredUser(profile);
-          if (
-            profile.role === 'student' &&
-            !VALID_STUDENT_PATHS.includes(window.location.pathname)
-          ) {
-            window.history.replaceState({}, '', '/student/radar');
-            setCurrentPath('/student/radar');
+          const resolved = resolvePathForUser(window.location.pathname, profile);
+          if (window.location.pathname !== resolved) {
+            window.history.replaceState({}, '', resolved);
           }
+          setCurrentPath(resolved);
         } catch (err) {
           console.warn('Session expired or invalid token:', err);
           removeStoredToken();
@@ -91,13 +106,13 @@ export default function App() {
     removeStoredUser();
     setUser(null);
     window.history.pushState({}, '', '/');
+    setCurrentPath('/');
   };
 
   const handleAuthSuccess = (authUser) => {
     setUser(authUser);
-    if (authUser?.role === 'student') {
-      handleNavigatePage('/student/radar');
-    }
+    const defaultRoute = authUser?.role === 'student' ? '/student/radar' : '/bakery/pulse';
+    handleNavigatePage(defaultRoute, authUser);
   };
 
   if (initialLoading) {
@@ -105,7 +120,9 @@ export default function App() {
       <div className="app-container" style={{ justifyContent: 'center', alignItems: 'center' }}>
         <div style={{ textAlign: 'center', color: '#D97706' }}>
           <span style={{ fontSize: '2.5rem' }}>🥖</span>
-          <p style={{ marginTop: '12px', fontSize: '1rem', color: '#64748B' }}>Connecting to Vif backend...</p>
+          <p style={{ marginTop: '12px', fontSize: '1rem', color: '#64748B' }}>
+            Connecting to Vif backend...
+          </p>
         </div>
       </div>
     );
@@ -113,7 +130,7 @@ export default function App() {
 
   return (
     <div className="app-container">
-      <Navbar 
+      <Navbar
         user={user}
         onLogout={handleLogout}
         onOpenAuth={handleOpenAuth}
@@ -124,29 +141,33 @@ export default function App() {
 
       <main className="main-content">
         {!user ? (
-          <LandingPage 
-            onOpenAuth={handleOpenAuth}
-          />
+          <LandingPage onOpenAuth={handleOpenAuth} />
         ) : user.role === 'student' ? (
-          <StudentPortal 
+          <StudentPortal
             user={user}
             currentPath={currentPath}
             onNavigatePage={handleNavigatePage}
             onUserUpdate={(updated) => {
               setUser(updated);
               setStoredUser(updated);
-            }} 
+            }}
           />
         ) : (
-          <ShopkeeperPortal 
-            user={user} 
+          <ShopkeeperPortal
+            user={user}
+            currentPath={currentPath}
+            onNavigatePage={handleNavigatePage}
+            onUserUpdate={(updated) => {
+              setUser(updated);
+              setStoredUser(updated);
+            }}
           />
         )}
       </main>
 
       <Footer />
 
-      <AuthModal 
+      <AuthModal
         isOpen={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
         initialTab={authInitialTab}

@@ -130,6 +130,19 @@ export const api = {
     });
   },
 
+  updatePulse: async (pulseId, pulseData) => {
+    return await request(`/pulses/${pulseId}`, {
+      method: 'PUT',
+      body: JSON.stringify(pulseData),
+    });
+  },
+
+  deletePulse: async (pulseId) => {
+    return await request(`/pulses/${pulseId}`, {
+      method: 'DELETE',
+    });
+  },
+
   validateClaim: async (qrToken) => {
     return await request('/validate-claim', {
       method: 'POST',
@@ -148,5 +161,18 @@ export const api = {
     return await request(`/shops/${shopId}/tax-report/${year}/${month}`, {
       method: 'POST',
     });
+  },
+
+  getBakeryHistory: async () => {
+    return await request('/shopkeeper/history');
+  },
+
+  updateBakeryProfile: async (payload) => {
+    const updatedUser = await request('/shopkeeper/profile', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+    setStoredUser(updatedUser);
+    return updatedUser;
   },
 };

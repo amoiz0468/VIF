@@ -19,18 +19,34 @@ async def set_inventory_costs(
     current_user: models.User = Depends(auth.check_admin_role),
 ):
     shop = shopkeeper_service.upsert_inventory_costs(db, current_user, payload)
-    latitude = None
-    longitude = None
+    shop_lat, shop_lng = shopkeeper_service._extract_coordinates(shop.location)
     response_payload = schemas.InventoryCostsResponse(
         shop_id=shop.id,
         owner_user_id=shop.owner_user_id,
         inventory_costs=shopkeeper_service._decode_inventory_costs(shop.inventory_costs),
         address=shop.address,
         siret=shop.siret,
-        latitude=payload.latitude,
-        longitude=payload.longitude,
+        latitude=payload.latitude if payload.latitude is not None else shop_lat,
+        longitude=payload.longitude if payload.longitude is not None else shop_lng,
     )
     return response_payload
+
+
+@router.get("/shopkeeper/history", response_model=schemas.BakeryHistoryResponse)
+async def get_bakery_history(
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.check_admin_role),
+):
+    return shopkeeper_service.get_bakery_history(db, current_user)
+
+
+@router.put("/shopkeeper/profile", response_model=schemas.User)
+async def update_bakery_profile(
+    payload: schemas.BakeryProfileUpdate,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.check_admin_role),
+):
+    return shopkeeper_service.update_bakery_profile(db, current_user, payload)
 
 
 @router.post("/pulses", response_model=schemas.PulseResponse)
@@ -40,6 +56,8 @@ async def create_pulse(
     current_user: models.User = Depends(auth.check_admin_role),
 ):
     pulse, notified_students = await shopkeeper_service.create_pulse(db, current_user, payload)
+    shop = shopkeeper_service.get_or_create_shop(db, current_user)
+    unit_cost = float(shopkeeper_service._get_inventory_cost(shop, pulse.item_name))
     return schemas.PulseResponse(
         id=pulse.id,
         shop_id=pulse.shop_id,
@@ -48,10 +66,30 @@ async def create_pulse(
         is_donation=pulse.is_donation,
         quantity=pulse.quantity,
         quantity_remaining=pulse.quantity_remaining,
+        cost_price=unit_cost,
         expires_at=pulse.expires_at,
         created_at=pulse.created_at,
         notified_students=notified_students,
     )
+
+
+@router.put("/pulses/{pulse_id}", response_model=schemas.BakeryPulseHistoryItem)
+async def update_pulse(
+    pulse_id: UUID,
+    payload: schemas.PulseUpdate,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.check_admin_role),
+):
+    return shopkeeper_service.update_pulse(db, current_user, pulse_id, payload)
+
+
+@router.delete("/pulses/{pulse_id}")
+async def delete_pulse(
+    pulse_id: UUID,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.check_admin_role),
+):
+    return shopkeeper_service.delete_pulse(db, current_user, pulse_id)
 
 
 @router.post("/student/claims", response_model=schemas.ClaimCreateResponse)

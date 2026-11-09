@@ -170,7 +170,17 @@ class PulseCreate(BaseModel):
     description: Optional[str] = None
     is_donation: bool = True
     quantity: int = Field(..., gt=0)
+    cost_price: Optional[float] = Field(None, ge=0)
     expires_at: Optional[datetime] = None
+
+
+class PulseUpdate(BaseModel):
+    item_name: Optional[str] = None
+    description: Optional[str] = None
+    quantity: Optional[int] = Field(None, ge=0)
+    quantity_remaining: Optional[int] = Field(None, ge=0)
+    cost_price: Optional[float] = Field(None, ge=0)
+    extend_minutes: Optional[int] = None
 
 
 class PulseResponse(BaseModel):
@@ -181,6 +191,7 @@ class PulseResponse(BaseModel):
     is_donation: bool
     quantity: int
     quantity_remaining: int = 0
+    cost_price: float = 0.85
     expires_at: datetime
     created_at: Optional[datetime] = None
     notified_students: int = 0
@@ -296,3 +307,72 @@ class TaxReportResponse(BaseModel):
     items_count: int
     pdf_filename: str
     message: str
+
+
+class BakeryPulseHistoryItem(BaseModel):
+    pulse_id: UUID
+    item_name: str
+    description: Optional[str] = None
+    quantity: int
+    quantity_remaining: int
+    cost_price: float = 0.85
+    tax_deduction_value: float = 0.0
+    is_donation: bool = True
+    created_at: datetime
+    expires_at: datetime
+    is_active: bool = True
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BakeryClaimHistoryItem(BaseModel):
+    claim_id: UUID
+    pulse_id: UUID
+    item_name: str
+    student_email: str
+    student_name: Optional[str] = None
+    student_university: Optional[str] = None
+    quantity: int = 1
+    status: str
+    qr_code_token: str
+    claimed_at: datetime
+    claim_deadline: datetime
+    collected_at: Optional[datetime] = None
+    ghosted_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BakeryHistoryResponse(BaseModel):
+    shop_id: UUID
+    shop_name: str
+    shop_address: Optional[str] = None
+    siret: str
+    email: str
+    phone: Optional[str] = None
+    bio: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    total_pulses: int = 0
+    active_pulses_count: int = 0
+    total_claims: int = 0
+    collected_claims_count: int = 0
+    pending_claims_count: int = 0
+    ghosted_claims_count: int = 0
+    total_baskets_donated: int = 0
+    estimated_tax_credit_eur: float = 0.0
+    pulses: List[BakeryPulseHistoryItem] = []
+    claims: List[BakeryClaimHistoryItem] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BakeryProfileUpdate(BaseModel):
+    shop_name: Optional[str] = None
+    shop_address: Optional[str] = None
+    phone: Optional[str] = None
+    bio: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    new_password: Optional[str] = None
+
