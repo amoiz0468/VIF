@@ -113,16 +113,6 @@ async def login_for_access_token(payload: schemas.LoginRequest, db: Session = De
 async def read_users_me(current_user: models.User = Depends(auth.get_current_user)):
     return current_user
 
-@app.post("/student/verify-id", response_model=schemas.StudentIdVerificationResponse)
-async def verify_student_id(
-    upload: UploadFile = File(...),
-    db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(auth.check_student_role),
-):
-    if not upload.content_type or not upload.content_type.startswith("image/"):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Please upload an image file")
-    return await student_portal_service.verify_student_id(db, current_user, upload)
-
 @app.get("/items", response_model=List[schemas.Item])
 def read_items(skip: int = 0, limit: int = 100, db: Session = Depends(database.get_db)):
     items = crud.get_items(db, skip=skip, limit=limit)

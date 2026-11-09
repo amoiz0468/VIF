@@ -19,6 +19,7 @@ import {
 import { QRCodeSVG } from 'qrcode.react';
 import confetti from 'canvas-confetti';
 import { api } from '../api';
+import SurplusRadarMap from './SurplusRadarMap';
 
 const PARIS_ZONES = [
   { name: 'Le Marais', lat: 48.8575, lng: 2.3598, desc: 'Commerces & Cafés' },
@@ -173,9 +174,16 @@ export default function StudentPortal({ user, onUserUpdate }) {
     try {
       const res = await api.verifyStudentId(file);
       setVerificationResult(res);
-      showToast('Student ID verified by backend OCR! Priority window unlocked.');
-      if (onUserUpdate) {
-        onUserUpdate({ ...user, is_verified: true, id_verification_status: 'verified' });
+      if (res.verified) {
+        showToast(res.message || 'Student ID verified by backend OCR! Priority window unlocked.', 'success');
+        if (onUserUpdate) {
+          onUserUpdate({ ...user, is_verified: true, id_verification_status: 'verified' });
+        }
+      } else {
+        showToast(res.message || 'Card verification failed.', 'error');
+        if (onUserUpdate) {
+          onUserUpdate({ ...user, is_verified: false, id_verification_status: res.status });
+        }
       }
       fetchNearbyPulses();
     } catch (err) {
@@ -333,6 +341,16 @@ export default function StudentPortal({ user, onUserUpdate }) {
             </div>
           )}
 
+          {/* Interactive Geofence Map: Exact Locations of Student & Boulangeries */}
+          <SurplusRadarMap 
+            studentCoords={coords}
+            pulses={pulses}
+            selectedZoneName={selectedZone.name}
+            onClaimPulse={handleClaimPulse}
+            activeClaim={activeClaim}
+            claimLoading={claimLoading}
+          />
+
           {/* Surplus Feed List */}
           <div className="feed-header-row">
             <h3 className="feed-title">
@@ -459,10 +477,16 @@ export default function StudentPortal({ user, onUserUpdate }) {
             </label>
 
             {verificationResult && (
-              <div className="ocr-result-box">
-                <FileCheck size={16} color="#10B981" />
+              <div className="ocr-result-box" style={{ borderColor: verificationResult.verified ? '#10B981' : '#EF4444' }}>
+                {verificationResult.verified ? (
+                  <FileCheck size={18} color="#10B981" />
+                ) : (
+                  <AlertCircle size={18} color="#EF4444" />
+                )}
                 <div>
-                  <div className="ocr-title">OCR Recognition Status</div>
+                  <div className="ocr-title" style={{ color: verificationResult.verified ? '#10B981' : '#EF4444' }}>
+                    {verificationResult.verified ? 'OCR Verification Successful' : 'OCR Verification Notice'}
+                  </div>
                   <div className="ocr-keywords">
                     {verificationResult.message}
                   </div>

@@ -97,15 +97,7 @@ def _generate_unique_qr_token(db: Session, length: int = 6) -> str:
 
 
 def _extract_coordinates(point_value) -> Tuple[Optional[float], Optional[float]]:
-    if not point_value:
-        return None, None
-    try:
-        text_value = getattr(point_value, "desc", None) or getattr(point_value, "data", None) or str(point_value)
-        if text_value.startswith("010100"):
-            return None, None
-    except Exception:
-        return None, None
-    return None, None
+    return student_portal._extract_point_coordinates(point_value)
 
 
 def upsert_inventory_costs(

@@ -81,7 +81,10 @@ export default function App() {
         ) : user.role === 'student' ? (
           <StudentPortal 
             user={user} 
-            onUserUpdate={(updated) => setUser(updated)} 
+            onUserUpdate={(updated) => {
+              setUser(updated);
+              setStoredUser(updated);
+            }} 
           />
         ) : (
           <ShopkeeperPortal 

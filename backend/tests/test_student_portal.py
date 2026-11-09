@@ -455,6 +455,40 @@ class StudentPortalServiceTests(IsolatedAsyncioTestCase):
         self.assertFalse(self.student_user.is_verified)
         self.assertEqual(self.student_user.id_verification_status, "manual_review")
 
+    def test_extract_card_dates_locally(self):
+        d1, d2 = student_portal._extract_card_dates_locally("ANNEE UNIVERSITAIRE 2025-2026")
+        self.assertIsNotNone(d1)
+        self.assertIsNotNone(d2)
+        self.assertEqual(d1.year, 2025)
+        self.assertEqual(d2.year, 2026)
+
+        d1, d2 = student_portal._extract_card_dates_locally("Carte Etudiant EPITECH 2024/2025")
+        self.assertEqual(d1.year, 2024)
+        self.assertEqual(d2.year, 2025)
+
+        d1, d2 = student_portal._extract_card_dates_locally("Valable jusqu'au 31/08/2026")
+        self.assertEqual(d2.day, 31)
+        self.assertEqual(d2.month, 8)
+        self.assertEqual(d2.year, 2026)
+
+    async def test_verify_student_id_with_local_date_extraction_without_llm(self):
+        db = FakeDB({})
+        today = datetime.now(timezone.utc).date()
+        current_year = today.year
+
+        ocr_content = f"REPUBLIQUE FRANCAISE\nCARTE D'ETUDIANT\nIZLY\nANNEE {current_year}-{current_year + 1}"
+
+        async def fake_extract(upload):
+            return ocr_content
+
+        with patch.object(student_portal, "_extract_ocr_text", side_effect=fake_extract):
+            response = await student_portal.verify_student_id(db, self.student_user, DummyUpload(b"fake image"))
+
+        self.assertTrue(response.verified)
+        self.assertEqual(response.status, "verified")
+        self.assertTrue(self.student_user.is_verified)
+        self.assertEqual(self.student_user.id_verification_status, "verified")
+
 
 class StudentPortalRouteTests(TestCase):
     def _make_app(self, db: FakeDB) -> FastAPI:

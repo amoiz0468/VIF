@@ -2,6 +2,7 @@ import logging
 import json
 import os
 import re
+import struct
 import tempfile
 from io import BytesIO
 from calendar import monthrange
@@ -25,9 +26,25 @@ FEED_RADIUS_METERS = 1000
 
 KEYWORD_PATTERNS = (
     "ETUDIANT",
+    "ÉTUDIANT",
     "STUDENT",
     "IZLY",
     "PASS CULTURE",
+    "UNIVERSITE",
+    "UNIVERSITÉ",
+    "CAMPUS",
+    "EPITECH",
+    "ECOLE",
+    "ÉCOLE",
+    "FACULTE",
+    "FACULTÉ",
+    "CARTE D'ETUDIANT",
+    "CARTE D'ÉTUDIANT",
+    "CARTE ETUDIANT",
+    "CARTE ÉTUDIANT",
+    "SCOLARITE",
+    "SCOLARITÉ",
+    "ENSEIGNEMENT",
 )
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
@@ -44,26 +61,59 @@ def _student_point(latitude: float, longitude: float) -> WKTElement:
     return WKTElement(f"POINT({longitude} {latitude})", srid=4326)
 
 
-def _academic_year_tokens(now: Optional[datetime] = None) -> Tuple[str, str, str]:
+def _extract_point_coordinates(point_value) -> Tuple[Optional[float], Optional[float]]:
+    """Extract (latitude, longitude) from WKTElement, WKBElement, or raw bytes."""
+    if not point_value:
+        return None, None
+    data = getattr(point_value, "data", None) or point_value
+    if isinstance(data, memoryview):
+        data = bytes(data)
+    if isinstance(data, (bytes, bytearray)):
+        if len(data) >= 21:
+            byte_order = "<" if data[0] == 1 else ">"
+            geom_type = struct.unpack(f"{byte_order}I", data[1:5])[0]
+            offset = 5
+            # If EWKB has SRID flag (0x20000000)
+            if geom_type & 0x20000000:
+                offset += 4
+            x, y = struct.unpack(f"{byte_order}dd", data[offset : offset + 16])
+            return float(y), float(x)
+    elif isinstance(data, str):
+        match = re.search(r"POINT\s*\(\s*([-\d.]+)\s+([-\d.]+)\s*\)", data, re.IGNORECASE)
+        if match:
+            return float(match.group(2)), float(match.group(1))
+    return None, None
+
+
+def _academic_year_tokens(now: Optional[datetime] = None) -> Tuple[str, ...]:
     current = now or datetime.now(timezone.utc)
     if current.month >= 9:
         start_year = current.year
     else:
         start_year = current.year - 1
     end_year = start_year + 1
-    return (
+    tokens = [
         str(start_year),
+        str(end_year),
         f"{start_year}-{end_year}",
         f"{start_year}/{end_year}",
-    )
+        # Fall transition: students holding card from the preceding year (e.g. 2025-2026 in fall 2026)
+        f"{start_year - 1}-{start_year}",
+        f"{start_year - 1}/{start_year}",
+    ]
+    return tuple(tokens)
 
 
 async def _extract_ocr_text(upload: UploadFile) -> str:
     file_bytes = await upload.read()
     if not file_bytes:
         return ""
+    try:
+        await upload.seek(0)
+    except Exception:
+        pass
 
-    # Primary OCR path: Docling DocumentConverter
+    # 1. Primary OCR path: Docling DocumentConverter (if installed)
     temp_path: Optional[str] = None
     try:
         from docling.document_converter import DocumentConverter  # type: ignore
@@ -79,11 +129,12 @@ async def _extract_ocr_text(upload: UploadFile) -> str:
         converter = DocumentConverter()
         result = converter.convert(temp_path)
         output_text = result.document.export_to_markdown()
-        if output_text:
+        if output_text and output_text.strip():
             return output_text
-    except Exception:
-        # Fall back to pytesseract/plain decode when Docling is unavailable
-        log.exception("Docling OCR extraction failed; falling back to secondary extractor")
+    except ImportError:
+        pass
+    except Exception as exc:
+        log.debug("Docling OCR extraction failed: %s", exc)
     finally:
         if temp_path and os.path.exists(temp_path):
             try:
@@ -91,27 +142,44 @@ async def _extract_ocr_text(upload: UploadFile) -> str:
             except OSError:
                 pass
 
+    # 2. Secondary OCR path: Pytesseract with Pillow image preprocessing
     try:
-        from PIL import Image  # type: ignore
+        from PIL import Image, ImageEnhance  # type: ignore
         import pytesseract  # type: ignore
-    except Exception:
-        try:
-            return file_bytes.decode("utf-8", errors="ignore")
-        except Exception:
-            return ""
 
-    try:
         image = Image.open(BytesIO(file_bytes))
+        # Pre-process for better OCR detection
+        gray = image.convert("L")
+        if gray.width < 1200:
+            scale = 1200.0 / gray.width
+            gray = gray.resize((int(gray.width * scale), int(gray.height * scale)), Image.Resampling.LANCZOS)
+        enhancer = ImageEnhance.Contrast(gray)
+        enhanced = enhancer.enhance(1.8)
+
+        # Try fra+eng first, fallback to eng or default
+        try:
+            text = pytesseract.image_to_string(enhanced, lang="fra+eng")
+        except pytesseract.TesseractError:
+            try:
+                text = pytesseract.image_to_string(enhanced, lang="eng")
+            except Exception:
+                text = pytesseract.image_to_string(enhanced)
+
+        if text and text.strip():
+            return text
+    except ImportError:
+        log.warning("Pillow or pytesseract not available.")
+    except Exception as exc:
+        if "TesseractNotFoundError" in type(exc).__name__:
+            log.warning("Tesseract binary not installed on system PATH. Install it via: sudo dnf install tesseract tesseract-langpack-fra")
+        else:
+            log.warning("Pytesseract OCR failed: %s", exc)
+
+    # 3. Fallback to plain utf-8 decode (for mock payloads in tests)
+    try:
+        return file_bytes.decode("utf-8", errors="ignore")
     except Exception:
         return ""
-
-    try:
-        return pytesseract.image_to_string(image)
-    except Exception:
-        try:
-            return file_bytes.decode("utf-8", errors="ignore")
-        except Exception:
-            return ""
 
 
 def _find_verification_keywords(extracted_text: str) -> List[str]:
@@ -146,6 +214,88 @@ def _parse_date_token(value: str, *, prefer_end_of_month: bool = False) -> Optio
             return date(year, month, day)
 
     return None
+
+
+def _extract_card_dates_locally(extracted_text: str, now: Optional[datetime] = None) -> Tuple[Optional[date], Optional[date]]:
+    """
+    Extracts start and end validity dates from student card OCR text.
+    Handles French and International university formats without requiring an external LLM:
+    - Academic year spans: '2024-2025', '2025/2026', '2025-26', '2025 / 2026'
+    - Expiration phrases: 'Valable jusqu'au 31/08/2025', 'Expire le: 30/09/2025', 'Validité: 08/2026'
+    - Date ranges: 'Du 01/09/2024 au 31/08/2025'
+    - Single academic years: 'Année 2025', 'Promo 2026'
+    """
+    if not extracted_text:
+        return None, None
+
+    normalized = extracted_text.upper()
+
+    # 1. Academic year spans: 4-digit year to 4-digit year (e.g. 2024-2025, 2025-2026)
+    span_matches = re.findall(r"\b(20\d{2})\s*[-/–—]\s*(20\d{2})\b", normalized)
+    for y1_str, y2_str in span_matches:
+        y1, y2 = int(y1_str), int(y2_str)
+        if y2 == y1 + 1 or y2 == y1:
+            return date(y1, 9, 1), date(y2, 12, 31)
+
+    # 2. Academic year spans: 4-digit year to 2-digit year (e.g. 2024-25, 2025/26)
+    short_span_matches = re.findall(r"\b(20\d{2})\s*[-/–—]\s*(\d{2})\b", normalized)
+    for y1_str, y2_str in short_span_matches:
+        y1 = int(y1_str)
+        y2 = int(y1_str[:2] + y2_str)
+        if y2 == y1 + 1:
+            return date(y1, 9, 1), date(y2, 12, 31)
+
+    # 3. Explicit expiration / validity phrases
+    expiry_patterns = [
+        r"(?:JUSQU[\'\s]*AU|VALIDE\s+AU|EXPIRE\s+LE|EXPIRATION|VALIDIT[EÉ]|FIN|ECHEANCE)\D{0,15}(\d{1,2}[\/\.-]\d{1,2}[\/\.-]\d{2,4})",
+        r"(?:JUSQU[\'\s]*AU|VALIDE\s+AU|EXPIRE\s+LE|EXPIRATION|VALIDIT[EÉ]|FIN|ECHEANCE)\D{0,15}(\d{1,2}[\/\.-]\d{4})",
+    ]
+    for pattern in expiry_patterns:
+        match = re.search(pattern, normalized)
+        if match:
+            end_date = _parse_date_token(match.group(1), prefer_end_of_month=True)
+            if end_date:
+                start_year = end_date.year - 1 if end_date.month <= 10 else end_date.year
+                return date(start_year, 9, 1), end_date
+
+    # 4. Explicit date ranges: "Du DD/MM/YYYY au DD/MM/YYYY"
+    range_match = re.search(
+        r"(?:DU\s+)?(\d{1,2}[\/\.-]\d{1,2}[\/\.-]\d{2,4})\s+(?:AU|A)\s+(\d{1,2}[\/\.-]\d{1,2}[\/\.-]\d{2,4})",
+        normalized,
+    )
+    if range_match:
+        d1 = _parse_date_token(range_match.group(1))
+        d2 = _parse_date_token(range_match.group(2), prefer_end_of_month=True)
+        if d1 and d2:
+            return (d1, d2) if d1 <= d2 else (d2, d1)
+
+    # 5. Extract all standard dates found in the text
+    raw_dates = []
+    for token in re.findall(r"\b\d{1,2}[\/\.-]\d{1,2}[\/\.-]\d{4}\b", normalized):
+        parsed = _parse_date_token(token)
+        if parsed and 2020 <= parsed.year <= 2035:
+            raw_dates.append(parsed)
+    for token in re.findall(r"\b(?:0[1-9]|1[0-2])[\/\.-]20\d{2}\b", normalized):
+        parsed = _parse_date_token(token, prefer_end_of_month=True)
+        if parsed and 2020 <= parsed.year <= 2035:
+            raw_dates.append(parsed)
+
+    if raw_dates:
+        raw_dates.sort()
+        if len(raw_dates) >= 2:
+            return raw_dates[0], raw_dates[-1]
+        else:
+            single = raw_dates[0]
+            start_year = single.year - 1 if single.month <= 10 else single.year
+            return date(start_year, 9, 1), single
+
+    # 6. Single academic year keyword match (e.g. "Année 2025", "Promo 2026")
+    single_year_match = re.search(r"(?:ANN[EÉ]E|PROMO(?:TION)?|SESSION|INSCRIPTION)\D{0,10}\b(20\d{2})\b", normalized)
+    if single_year_match:
+        y = int(single_year_match.group(1))
+        return date(y - 1, 9, 1), date(y, 10, 31)
+
+    return None, None
 
 
 def _extract_json_object(content: str) -> Optional[dict]:
@@ -263,6 +413,8 @@ async def get_nearby_pulses(db: Session, current_user: models.User, latitude: fl
         if priority_window_active and not current_user.is_verified:
             continue
 
+        shop_lat, shop_lng = _extract_point_coordinates(shop.location)
+
         results.append(
             schemas.NearbyPulseResponse(
                 pulse_id=pulse.id,
@@ -276,6 +428,8 @@ async def get_nearby_pulses(db: Session, current_user: models.User, latitude: fl
                 expires_at=_ensure_aware_utc(pulse.expires_at),
                 distance_meters=float(distance_meters or 0.0),
                 priority_window_active=priority_window_active,
+                latitude=shop_lat,
+                longitude=shop_lng,
             )
         )
 
@@ -363,7 +517,14 @@ async def verify_student_id(db: Session, current_user: models.User, upload: Uplo
     extracted_text = await _extract_ocr_text(upload)
     _record_ocr_output(extracted_text)
     matched_keywords = _find_verification_keywords(extracted_text)
-    start_date, end_date = await _llm_correct_student_card_dates(extracted_text)
+
+    # 1. Try local extraction first (handles academic years and expiration dates)
+    start_date, end_date = _extract_card_dates_locally(extracted_text)
+
+    # 2. If local extraction couldn't parse the dates, fallback to LLM (if configured)
+    if not end_date:
+        start_date, end_date = await _llm_correct_student_card_dates(extracted_text)
+
     today = datetime.now(timezone.utc).date()
 
     current_user.student_card_start_date = start_date
