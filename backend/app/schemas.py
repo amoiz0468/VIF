@@ -47,9 +47,80 @@ class User(UserBase):
     student_card_start_date: Optional[date] = None
     student_card_end_date: Optional[date] = None
     student_id_url: Optional[str] = None
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    university: Optional[str] = None
+    study_level: Optional[str] = None
+    dietary_preferences: Optional[str] = None
+    default_address: Optional[str] = None
+    bio: Optional[str] = None
     shop_name: Optional[str] = None
     shop_address: Optional[str] = None
     siret: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class StudentProfileUpdate(BaseModel):
+    full_name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+    university: Optional[str] = None
+    study_level: Optional[str] = None
+    dietary_preferences: Optional[str] = None
+    default_address: Optional[str] = None
+    bio: Optional[str] = None
+    new_password: Optional[str] = None
+
+
+class StudentClaimHistoryItem(BaseModel):
+    claim_id: UUID
+    pulse_id: UUID
+    shop_id: UUID
+    shop_name: str
+    shop_address: Optional[str] = None
+    shop_siret: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    item_name: str
+    description: Optional[str] = None
+    quantity: int = 1
+    status: str
+    qr_code_token: str
+    claimed_at: datetime
+    claim_deadline: datetime
+    collected_at: Optional[datetime] = None
+    ghosted_at: Optional[datetime] = None
+    karma_delta: int = 0
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class StudentHistoryResponse(BaseModel):
+    student_id: UUID
+    email: str
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    university: Optional[str] = None
+    study_level: Optional[str] = None
+    dietary_preferences: Optional[str] = None
+    default_address: Optional[str] = None
+    bio: Optional[str] = None
+    karma_score: int = 50
+    is_verified: bool = False
+    id_verification_status: str = "pending"
+    student_card_start_date: Optional[date] = None
+    student_card_end_date: Optional[date] = None
+    last_latitude: Optional[float] = None
+    last_longitude: Optional[float] = None
+    last_location_updated_at: Optional[datetime] = None
+    total_claims: int = 0
+    collected_count: int = 0
+    pending_count: int = 0
+    ghosted_count: int = 0
+    estimated_food_saved_kg: float = 0.0
+    estimated_money_saved_eur: float = 0.0
+    claims: List[StudentClaimHistoryItem] = []
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -162,6 +233,8 @@ class NearbyPulseResponse(BaseModel):
     expires_at: datetime
     distance_meters: float
     priority_window_active: bool
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
     model_config = ConfigDict(from_attributes=True)
 

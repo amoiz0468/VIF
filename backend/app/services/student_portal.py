@@ -2,6 +2,7 @@ import logging
 import json
 import os
 import re
+import struct
 import tempfile
 from io import BytesIO
 from calendar import monthrange
@@ -15,7 +16,7 @@ import httpx
 from sqlalchemy import func
 from sqlalchemy.orm import Session, sessionmaker
 
-from .. import models, schemas
+from .. import auth, models, schemas
 from . import karma_engine
 
 log = logging.getLogger("vif.student_portal")
@@ -25,9 +26,25 @@ FEED_RADIUS_METERS = 1000
 
 KEYWORD_PATTERNS = (
     "ETUDIANT",
+    "ÉTUDIANT",
     "STUDENT",
     "IZLY",
     "PASS CULTURE",
+    "UNIVERSITE",
+    "UNIVERSITÉ",
+    "CAMPUS",
+    "EPITECH",
+    "ECOLE",
+    "ÉCOLE",
+    "FACULTE",
+    "FACULTÉ",
+    "CARTE D'ETUDIANT",
+    "CARTE D'ÉTUDIANT",
+    "CARTE ETUDIANT",
+    "CARTE ÉTUDIANT",
+    "SCOLARITE",
+    "SCOLARITÉ",
+    "ENSEIGNEMENT",
 )
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
@@ -44,26 +61,59 @@ def _student_point(latitude: float, longitude: float) -> WKTElement:
     return WKTElement(f"POINT({longitude} {latitude})", srid=4326)
 
 
-def _academic_year_tokens(now: Optional[datetime] = None) -> Tuple[str, str, str]:
+def _extract_point_coordinates(point_value) -> Tuple[Optional[float], Optional[float]]:
+    """Extract (latitude, longitude) from WKTElement, WKBElement, or raw bytes."""
+    if not point_value:
+        return None, None
+    data = getattr(point_value, "data", None) or point_value
+    if isinstance(data, memoryview):
+        data = bytes(data)
+    if isinstance(data, (bytes, bytearray)):
+        if len(data) >= 21:
+            byte_order = "<" if data[0] == 1 else ">"
+            geom_type = struct.unpack(f"{byte_order}I", data[1:5])[0]
+            offset = 5
+            # If EWKB has SRID flag (0x20000000)
+            if geom_type & 0x20000000:
+                offset += 4
+            x, y = struct.unpack(f"{byte_order}dd", data[offset : offset + 16])
+            return float(y), float(x)
+    elif isinstance(data, str):
+        match = re.search(r"POINT\s*\(\s*([-\d.]+)\s+([-\d.]+)\s*\)", data, re.IGNORECASE)
+        if match:
+            return float(match.group(2)), float(match.group(1))
+    return None, None
+
+
+def _academic_year_tokens(now: Optional[datetime] = None) -> Tuple[str, ...]:
     current = now or datetime.now(timezone.utc)
     if current.month >= 9:
         start_year = current.year
     else:
         start_year = current.year - 1
     end_year = start_year + 1
-    return (
+    tokens = [
         str(start_year),
+        str(end_year),
         f"{start_year}-{end_year}",
         f"{start_year}/{end_year}",
-    )
+        # Fall transition: students holding card from the preceding year (e.g. 2025-2026 in fall 2026)
+        f"{start_year - 1}-{start_year}",
+        f"{start_year - 1}/{start_year}",
+    ]
+    return tuple(tokens)
 
 
 async def _extract_ocr_text(upload: UploadFile) -> str:
     file_bytes = await upload.read()
     if not file_bytes:
         return ""
+    try:
+        await upload.seek(0)
+    except Exception:
+        pass
 
-    # Primary OCR path: Docling DocumentConverter
+    # 1. Primary OCR path: Docling DocumentConverter (if installed)
     temp_path: Optional[str] = None
     try:
         from docling.document_converter import DocumentConverter  # type: ignore
@@ -79,11 +129,12 @@ async def _extract_ocr_text(upload: UploadFile) -> str:
         converter = DocumentConverter()
         result = converter.convert(temp_path)
         output_text = result.document.export_to_markdown()
-        if output_text:
+        if output_text and output_text.strip():
             return output_text
-    except Exception:
-        # Fall back to pytesseract/plain decode when Docling is unavailable
-        log.exception("Docling OCR extraction failed; falling back to secondary extractor")
+    except ImportError:
+        pass
+    except Exception as exc:
+        log.debug("Docling OCR extraction failed: %s", exc)
     finally:
         if temp_path and os.path.exists(temp_path):
             try:
@@ -91,27 +142,44 @@ async def _extract_ocr_text(upload: UploadFile) -> str:
             except OSError:
                 pass
 
+    # 2. Secondary OCR path: Pytesseract with Pillow image preprocessing
     try:
-        from PIL import Image  # type: ignore
+        from PIL import Image, ImageEnhance  # type: ignore
         import pytesseract  # type: ignore
-    except Exception:
-        try:
-            return file_bytes.decode("utf-8", errors="ignore")
-        except Exception:
-            return ""
 
-    try:
         image = Image.open(BytesIO(file_bytes))
+        # Pre-process for better OCR detection
+        gray = image.convert("L")
+        if gray.width < 1200:
+            scale = 1200.0 / gray.width
+            gray = gray.resize((int(gray.width * scale), int(gray.height * scale)), Image.Resampling.LANCZOS)
+        enhancer = ImageEnhance.Contrast(gray)
+        enhanced = enhancer.enhance(1.8)
+
+        # Try fra+eng first, fallback to eng or default
+        try:
+            text = pytesseract.image_to_string(enhanced, lang="fra+eng")
+        except pytesseract.TesseractError:
+            try:
+                text = pytesseract.image_to_string(enhanced, lang="eng")
+            except Exception:
+                text = pytesseract.image_to_string(enhanced)
+
+        if text and text.strip():
+            return text
+    except ImportError:
+        log.warning("Pillow or pytesseract not available.")
+    except Exception as exc:
+        if "TesseractNotFoundError" in type(exc).__name__:
+            log.warning("Tesseract binary not installed on system PATH. Install it via: sudo dnf install tesseract tesseract-langpack-fra")
+        else:
+            log.warning("Pytesseract OCR failed: %s", exc)
+
+    # 3. Fallback to plain utf-8 decode (for mock payloads in tests)
+    try:
+        return file_bytes.decode("utf-8", errors="ignore")
     except Exception:
         return ""
-
-    try:
-        return pytesseract.image_to_string(image)
-    except Exception:
-        try:
-            return file_bytes.decode("utf-8", errors="ignore")
-        except Exception:
-            return ""
 
 
 def _find_verification_keywords(extracted_text: str) -> List[str]:
@@ -146,6 +214,88 @@ def _parse_date_token(value: str, *, prefer_end_of_month: bool = False) -> Optio
             return date(year, month, day)
 
     return None
+
+
+def _extract_card_dates_locally(extracted_text: str, now: Optional[datetime] = None) -> Tuple[Optional[date], Optional[date]]:
+    """
+    Extracts start and end validity dates from student card OCR text.
+    Handles French and International university formats without requiring an external LLM:
+    - Academic year spans: '2024-2025', '2025/2026', '2025-26', '2025 / 2026'
+    - Expiration phrases: 'Valable jusqu'au 31/08/2025', 'Expire le: 30/09/2025', 'Validité: 08/2026'
+    - Date ranges: 'Du 01/09/2024 au 31/08/2025'
+    - Single academic years: 'Année 2025', 'Promo 2026'
+    """
+    if not extracted_text:
+        return None, None
+
+    normalized = extracted_text.upper()
+
+    # 1. Academic year spans: 4-digit year to 4-digit year (e.g. 2024-2025, 2025-2026)
+    span_matches = re.findall(r"\b(20\d{2})\s*[-/–—]\s*(20\d{2})\b", normalized)
+    for y1_str, y2_str in span_matches:
+        y1, y2 = int(y1_str), int(y2_str)
+        if y2 == y1 + 1 or y2 == y1:
+            return date(y1, 9, 1), date(y2, 12, 31)
+
+    # 2. Academic year spans: 4-digit year to 2-digit year (e.g. 2024-25, 2025/26)
+    short_span_matches = re.findall(r"\b(20\d{2})\s*[-/–—]\s*(\d{2})\b", normalized)
+    for y1_str, y2_str in short_span_matches:
+        y1 = int(y1_str)
+        y2 = int(y1_str[:2] + y2_str)
+        if y2 == y1 + 1:
+            return date(y1, 9, 1), date(y2, 12, 31)
+
+    # 3. Explicit expiration / validity phrases
+    expiry_patterns = [
+        r"(?:JUSQU[\'\s]*AU|VALIDE\s+AU|EXPIRE\s+LE|EXPIRATION|VALIDIT[EÉ]|FIN|ECHEANCE)\D{0,15}(\d{1,2}[\/\.-]\d{1,2}[\/\.-]\d{2,4})",
+        r"(?:JUSQU[\'\s]*AU|VALIDE\s+AU|EXPIRE\s+LE|EXPIRATION|VALIDIT[EÉ]|FIN|ECHEANCE)\D{0,15}(\d{1,2}[\/\.-]\d{4})",
+    ]
+    for pattern in expiry_patterns:
+        match = re.search(pattern, normalized)
+        if match:
+            end_date = _parse_date_token(match.group(1), prefer_end_of_month=True)
+            if end_date:
+                start_year = end_date.year - 1 if end_date.month <= 10 else end_date.year
+                return date(start_year, 9, 1), end_date
+
+    # 4. Explicit date ranges: "Du DD/MM/YYYY au DD/MM/YYYY"
+    range_match = re.search(
+        r"(?:DU\s+)?(\d{1,2}[\/\.-]\d{1,2}[\/\.-]\d{2,4})\s+(?:AU|A)\s+(\d{1,2}[\/\.-]\d{1,2}[\/\.-]\d{2,4})",
+        normalized,
+    )
+    if range_match:
+        d1 = _parse_date_token(range_match.group(1))
+        d2 = _parse_date_token(range_match.group(2), prefer_end_of_month=True)
+        if d1 and d2:
+            return (d1, d2) if d1 <= d2 else (d2, d1)
+
+    # 5. Extract all standard dates found in the text
+    raw_dates = []
+    for token in re.findall(r"\b\d{1,2}[\/\.-]\d{1,2}[\/\.-]\d{4}\b", normalized):
+        parsed = _parse_date_token(token)
+        if parsed and 2020 <= parsed.year <= 2035:
+            raw_dates.append(parsed)
+    for token in re.findall(r"\b(?:0[1-9]|1[0-2])[\/\.-]20\d{2}\b", normalized):
+        parsed = _parse_date_token(token, prefer_end_of_month=True)
+        if parsed and 2020 <= parsed.year <= 2035:
+            raw_dates.append(parsed)
+
+    if raw_dates:
+        raw_dates.sort()
+        if len(raw_dates) >= 2:
+            return raw_dates[0], raw_dates[-1]
+        else:
+            single = raw_dates[0]
+            start_year = single.year - 1 if single.month <= 10 else single.year
+            return date(start_year, 9, 1), single
+
+    # 6. Single academic year keyword match (e.g. "Année 2025", "Promo 2026")
+    single_year_match = re.search(r"(?:ANN[EÉ]E|PROMO(?:TION)?|SESSION|INSCRIPTION)\D{0,10}\b(20\d{2})\b", normalized)
+    if single_year_match:
+        y = int(single_year_match.group(1))
+        return date(y - 1, 9, 1), date(y, 10, 31)
+
+    return None, None
 
 
 def _extract_json_object(content: str) -> Optional[dict]:
@@ -263,6 +413,8 @@ async def get_nearby_pulses(db: Session, current_user: models.User, latitude: fl
         if priority_window_active and not current_user.is_verified:
             continue
 
+        shop_lat, shop_lng = _extract_point_coordinates(shop.location)
+
         results.append(
             schemas.NearbyPulseResponse(
                 pulse_id=pulse.id,
@@ -276,6 +428,8 @@ async def get_nearby_pulses(db: Session, current_user: models.User, latitude: fl
                 expires_at=_ensure_aware_utc(pulse.expires_at),
                 distance_meters=float(distance_meters or 0.0),
                 priority_window_active=priority_window_active,
+                latitude=shop_lat,
+                longitude=shop_lng,
             )
         )
 
@@ -359,11 +513,58 @@ async def create_claim(db: Session, current_user: models.User, pulse_id: UUID, s
     return claim
 
 
+def _extract_student_profile_from_ocr(extracted_text: str) -> Tuple[Optional[str], Optional[str]]:
+    """Extract student full name and university from OCR text if present."""
+    if not extracted_text:
+        return None, None
+
+    text_upper = extracted_text.upper()
+    university = None
+    for uni_key, uni_label in (
+        ("EPITECH", "EPITECH - European Institute of Technology"),
+        ("SORBONNE", "Sorbonne Université"),
+        ("SCIENCES PO", "Sciences Po Paris"),
+        ("DAUPHINE", "Université Paris Dauphine - PSL"),
+        ("SACLAY", "Université Paris-Saclay"),
+        ("PANTHEON", "Université Paris 1 Panthéon-Sorbonne"),
+        ("DESCARTES", "Université Paris Cité"),
+        ("CITÉ", "Université Paris Cité"),
+        ("POLYTECHNIQUE", "Institut Polytechnique de Paris"),
+        ("42", "École 42 Paris"),
+    ):
+        if uni_key in text_upper:
+            university = uni_label
+            break
+
+    prenom_match = re.search(r"PR[EÉ]NOM\s*[:\-]?\s*([A-Za-zÀ-ÿ\-\s]{2,40})", extracted_text, re.IGNORECASE)
+    nom_match = re.search(r"\bNOM\s*[:\-]?\s*([A-Za-zÀ-ÿ\-\s]{2,40})", extracted_text, re.IGNORECASE)
+
+    prenom = prenom_match.group(1).splitlines()[0].strip() if prenom_match else ""
+    nom = nom_match.group(1).splitlines()[0].strip() if nom_match else ""
+
+    full_name = f"{prenom} {nom}".strip() if (prenom or nom) else None
+    return full_name, university
+
+
 async def verify_student_id(db: Session, current_user: models.User, upload: UploadFile) -> schemas.StudentIdVerificationResponse:
     extracted_text = await _extract_ocr_text(upload)
     _record_ocr_output(extracted_text)
     matched_keywords = _find_verification_keywords(extracted_text)
-    start_date, end_date = await _llm_correct_student_card_dates(extracted_text)
+
+    # Auto-populate profile fields from OCR if not yet set by the student
+    ocr_name, ocr_uni = _extract_student_profile_from_ocr(extracted_text)
+    if ocr_name and not getattr(current_user, "full_name", None):
+        current_user.full_name = ocr_name
+    if ocr_uni and not getattr(current_user, "university", None):
+        current_user.university = ocr_uni
+
+    # 1. Try local extraction first (handles academic years and expiration dates)
+    start_date, end_date = _extract_card_dates_locally(extracted_text)
+
+    # 2. If local extraction couldn't parse the dates, fallback to LLM (if configured)
+    if not end_date:
+        start_date, end_date = await _llm_correct_student_card_dates(extracted_text)
+
     today = datetime.now(timezone.utc).date()
 
     current_user.student_card_start_date = start_date
@@ -479,3 +680,332 @@ def register_location(
     db.commit()
     db.refresh(student_location)
     return student_location
+
+
+def _normalize_claim_status(raw_status: object) -> str:
+    if hasattr(raw_status, "value"):
+        return str(getattr(raw_status, "value")).lower()
+    text_val = str(raw_status or "pending").lower()
+    if "." in text_val:
+        text_val = text_val.split(".")[-1]
+    return text_val
+
+
+def get_student_history(db: Session, current_user: models.User) -> schemas.StudentHistoryResponse:
+    """Return comprehensive student history including profile details, verification dates, location, and all claims."""
+    rows = (
+        db.query(models.Claim, models.Pulse, models.Shop)
+        .outerjoin(models.Pulse, models.Pulse.id == models.Claim.pulse_id)
+        .outerjoin(models.Shop, models.Shop.id == models.Claim.shop_id)
+        .filter(models.Claim.student_user_id == current_user.id)
+        .order_by(models.Claim.claimed_at.desc())
+        .all()
+    )
+
+    claims_list: List[schemas.StudentClaimHistoryItem] = []
+    collected_count = 0
+    pending_count = 0
+    ghosted_count = 0
+
+    for claim, pulse, shop in rows:
+        status_str = _normalize_claim_status(claim.status)
+        if status_str == models.ClaimStatus.COLLECTED.value:
+            collected_count += 1
+            karma_delta = 5
+        elif status_str == models.ClaimStatus.GHOSTED.value:
+            ghosted_count += 1
+            karma_delta = -10
+        else:
+            pending_count += 1
+            karma_delta = 0
+
+        shop_lat, shop_lng = _extract_point_coordinates(shop.location) if shop else (None, None)
+
+        claims_list.append(
+            schemas.StudentClaimHistoryItem(
+                claim_id=claim.id,
+                pulse_id=claim.pulse_id,
+                shop_id=claim.shop_id,
+                shop_name=shop.name if shop else "Boulangerie Partner",
+                shop_address=shop.address if shop else None,
+                shop_siret=shop.siret if shop else None,
+                latitude=shop_lat,
+                longitude=shop_lng,
+                item_name=pulse.item_name if pulse else "Surplus Bakery Basket",
+                description=pulse.description if pulse else None,
+                quantity=claim.quantity or 1,
+                status=status_str,
+                qr_code_token=claim.qr_code_token or claim.qr_token,
+                claimed_at=_ensure_aware_utc(claim.claimed_at),
+                claim_deadline=_ensure_aware_utc(claim.claim_deadline),
+                collected_at=_ensure_aware_utc(claim.collected_at) if claim.collected_at else None,
+                ghosted_at=_ensure_aware_utc(claim.ghosted_at) if claim.ghosted_at else None,
+                karma_delta=karma_delta,
+            )
+        )
+
+    last_loc = (
+        db.query(models.StudentLocation)
+        .filter(models.StudentLocation.student_user_id == current_user.id)
+        .order_by(models.StudentLocation.updated_at.desc())
+        .first()
+    )
+    last_lat, last_lng = _extract_point_coordinates(last_loc.location) if last_loc else (None, None)
+
+    total_claims = len(claims_list)
+    # Estimate impact: each claimed/collected basket saves ~0.65 kg food waste and ~€6.50 student meal value
+    impact_meals = collected_count + pending_count
+    estimated_food_saved_kg = round(impact_meals * 0.65, 2)
+    estimated_money_saved_eur = round(impact_meals * 6.50, 2)
+
+    return schemas.StudentHistoryResponse(
+        student_id=current_user.id,
+        email=current_user.email,
+        full_name=getattr(current_user, "full_name", None),
+        phone=getattr(current_user, "phone", None),
+        university=getattr(current_user, "university", None),
+        study_level=getattr(current_user, "study_level", None),
+        dietary_preferences=getattr(current_user, "dietary_preferences", None),
+        default_address=getattr(current_user, "default_address", None),
+        bio=getattr(current_user, "bio", None),
+        karma_score=current_user.karma_score if current_user.karma_score is not None else 50,
+        is_verified=bool(current_user.is_verified),
+        id_verification_status=current_user.id_verification_status or "pending",
+        student_card_start_date=current_user.student_card_start_date,
+        student_card_end_date=current_user.student_card_end_date,
+        last_latitude=last_lat,
+        last_longitude=last_lng,
+        last_location_updated_at=_ensure_aware_utc(last_loc.updated_at) if last_loc and last_loc.updated_at else None,
+        total_claims=total_claims,
+        collected_count=collected_count,
+        pending_count=pending_count,
+        ghosted_count=ghosted_count,
+        estimated_food_saved_kg=estimated_food_saved_kg,
+        estimated_money_saved_eur=estimated_money_saved_eur,
+        claims=claims_list,
+    )
+
+
+def update_student_profile(
+    db: Session,
+    current_user: models.User,
+    payload: schemas.StudentProfileUpdate,
+) -> models.User:
+    """Update student profile fields in PostgreSQL."""
+    if payload.email is not None and payload.email != current_user.email:
+        allowed_domains = [".edu", ".eu", ".ac.uk", ".univ"]
+        if not any(payload.email.endswith(domain) for domain in allowed_domains):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Students must use a university email address (.edu, .eu, .ac.uk, .univ)",
+            )
+        existing = db.query(models.User).filter(models.User.email == payload.email, models.User.id != current_user.id).first()
+        if existing:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email is already registered to another user")
+        current_user.email = payload.email
+
+    for field in ("full_name", "phone", "university", "study_level", "dietary_preferences", "default_address", "bio"):
+        value = getattr(payload, field, None)
+        if value is not None:
+            setattr(current_user, field, value.strip() if isinstance(value, str) else value)
+
+    if payload.new_password:
+        if len(payload.new_password.strip()) < 6:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="New password must be at least 6 characters long",
+            )
+        current_user.hashed_password = auth.get_password_hash(payload.new_password.strip())
+
+    db.add(current_user)
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+
+PARTNER_BOULANGERIES_SEED = [
+    {
+        "email": "poilane.marais@vif-bakery.fr",
+        "shop_name": "Boulangerie Poilâne du Marais",
+        "shop_address": "38 Rue de Bretagne, 75003 Paris",
+        "siret": "31298471000018",
+        "lat": 48.8615,
+        "lng": 2.3622,
+        "item_name": "10 Baguettes de Tradition & Pains au Levain",
+        "description": "Baguettes traditionnelles au levain croustillantes, cuites dans l’après-midi.",
+        "quantity": 8,
+    },
+    {
+        "email": "landemaine.saintpaul@vif-bakery.fr",
+        "shop_name": "Maison Landemaine Saint-Paul",
+        "shop_address": "26 Rue des Rosiers, 75004 Paris",
+        "siret": "49821735000024",
+        "lat": 48.8568,
+        "lng": 2.3585,
+        "item_name": "8 Croissants & Viennoiseries Pur Beurre",
+        "description": "Assortiment de croissants artisanaux, pains au chocolat et brioches.",
+        "quantity": 6,
+    },
+    {
+        "email": "tenbelles.bastille@vif-bakery.fr",
+        "shop_name": "Ten Belles Bread Bastille",
+        "shop_address": "17-19 Rue Breguet, 75011 Paris",
+        "siret": "52190843000019",
+        "lat": 48.8555,
+        "lng": 2.3718,
+        "item_name": "Panier Sandwiches & Focaccias Bio",
+        "description": "Sandwiches frais au levain naturel, focaccias aux herbes et quiches du jour.",
+        "quantity": 5,
+    },
+    {
+        "email": "isabelle.sorbonne@vif-bakery.fr",
+        "shop_name": "La Maison d’Isabelle",
+        "shop_address": "47ter Bd Saint-Germain, 75005 Paris",
+        "siret": "41289301000015",
+        "lat": 48.8502,
+        "lng": 2.3482,
+        "item_name": "Lot de Croissants Primés & Pâtisseries",
+        "description": "Croissants pur beurre bio (1er prix Paris) et tartelettes aux fruits.",
+        "quantity": 9,
+    },
+    {
+        "email": "rabineau.quartierlatin@vif-bakery.fr",
+        "shop_name": "Boulangerie Moderne Rabineau",
+        "shop_address": "16 Rue des Fossés Saint-Jacques, 75005 Paris",
+        "siret": "38912045000021",
+        "lat": 48.8452,
+        "lng": 2.3448,
+        "item_name": "6 Sandwiches Baguette & Pains Spéciaux",
+        "description": "Sandwiches jambon-beurre-emmental et pains complets bio.",
+        "quantity": 6,
+    },
+    {
+        "email": "dupainetdesidees.republique@vif-bakery.fr",
+        "shop_name": "Du Pain et des Idées",
+        "shop_address": "34 Rue Yves Toudic, 75010 Paris",
+        "siret": "44109283000012",
+        "lat": 48.8710,
+        "lng": 2.3628,
+        "item_name": "Escargots Chocolat-Pistache & Pain des Amis",
+        "description": "Spécialités feuilletées et pavés de pain des amis au levain.",
+        "quantity": 7,
+    },
+    {
+        "email": "utopie.republique@vif-bakery.fr",
+        "shop_name": "Boulangerie Utopie",
+        "shop_address": "20 Rue Jean-Pierre Timbaud, 75011 Paris",
+        "siret": "79823410000016",
+        "lat": 48.8648,
+        "lng": 2.3682,
+        "item_name": "Baguettes Charbon & Pâtisseries Créatives",
+        "description": "Assortiment de pains spéciaux et viennoiseries artisanales de fin de journée.",
+        "quantity": 5,
+    },
+    {
+        "email": "kayser.montparnasse@vif-bakery.fr",
+        "shop_name": "Maison Kayser Montparnasse",
+        "shop_address": "14 Rue du Départ, 75015 Paris",
+        "siret": "40918273000033",
+        "lat": 48.8428,
+        "lng": 2.3175,
+        "item_name": "Panier Repas Étudiant: Sandwich + Dessert",
+        "description": "Grand sandwich céréales, flan pâtissier artisanal et petite baguette.",
+        "quantity": 10,
+    },
+    {
+        "email": "thierrymarx.vaugirard@vif-bakery.fr",
+        "shop_name": "Boulangerie Thierry Marx",
+        "shop_address": "51 Rue de Vaugirard / Bd Pasteur, 75015 Paris",
+        "siret": "81290345000011",
+        "lat": 48.8448,
+        "lng": 2.3125,
+        "item_name": "Breadmakis & Pains de Campagne Bio",
+        "description": "Créations boulangères bio et miches de pain au levain naturel.",
+        "quantity": 6,
+    },
+]
+
+EXTRA_SIRETS_TO_CLEAN = ("43198276000014", "32891047000028", "51209384000019")
+
+
+def ensure_partner_boulangeries_seeded(session_factory: sessionmaker) -> None:
+    """Ensure the 9 Paris partner bakeries and active surplus pulses exist in PostgreSQL."""
+    now = datetime.now(timezone.utc)
+    expires = now + timedelta(hours=24)
+    created = now - timedelta(minutes=15)
+
+    try:
+        with session_factory() as db:
+            # Remove any extra duplicate seeded bakeries so DB stays strictly at the 9 bakeries
+            extra_shops = db.query(models.Shop).filter(models.Shop.siret.in_(EXTRA_SIRETS_TO_CLEAN)).all()
+            for ex_shop in extra_shops:
+                db.query(models.Claim).filter(models.Claim.shop_id == ex_shop.id).delete()
+                db.query(models.Pulse).filter(models.Pulse.shop_id == ex_shop.id).delete()
+                owner_id = ex_shop.owner_user_id
+                db.delete(ex_shop)
+                db.flush()
+                if owner_id:
+                    db.query(models.User).filter(models.User.id == owner_id).delete()
+            db.flush()
+            for item in PARTNER_BOULANGERIES_SEED:
+                shop = db.query(models.Shop).filter(models.Shop.siret == item["siret"]).first()
+                if not shop:
+                    owner = db.query(models.User).filter(models.User.email == item["email"]).first()
+                    if not owner:
+                        owner = models.User(
+                            email=item["email"],
+                            hashed_password="seeded_partner_account",
+                            role=models.UserRole.SHOPKEEPER.value,
+                            is_verified=True,
+                            id_verification_status="verified",
+                            shop_name=item["shop_name"],
+                            shop_address=item["shop_address"],
+                            siret=item["siret"],
+                        )
+                        db.add(owner)
+                        db.flush()
+
+                    shop = models.Shop(
+                        owner_user_id=owner.id,
+                        name=item["shop_name"],
+                        siret=item["siret"],
+                        address=item["shop_address"],
+                        location=WKTElement(f"POINT({item['lng']} {item['lat']})", srid=4326),
+                        inventory_costs={"baguette": 0.45, "croissant": 0.50, "sandwich": 1.25},
+                    )
+                    db.add(shop)
+                    db.flush()
+                else:
+                    # Ensure location is set
+                    shop.location = WKTElement(f"POINT({item['lng']} {item['lat']})", srid=4326)
+                    shop.address = item["shop_address"]
+                    db.add(shop)
+
+                # Ensure an active pulse exists for this shop
+                active_pulse = (
+                    db.query(models.Pulse)
+                    .filter(models.Pulse.shop_id == shop.id)
+                    .first()
+                )
+                if not active_pulse:
+                    pulse = models.Pulse(
+                        shop_id=shop.id,
+                        type=models.PulseType.DONATION.value,
+                        item_name=item["item_name"],
+                        description=item["description"],
+                        is_donation=True,
+                        quantity=item["quantity"],
+                        quantity_remaining=item["quantity"],
+                        created_at=created,
+                        expires_at=expires,
+                    )
+                    db.add(pulse)
+                else:
+                    if _ensure_aware_utc(active_pulse.expires_at) <= now or (active_pulse.quantity_remaining or 0) <= 0:
+                        active_pulse.expires_at = expires
+                        active_pulse.quantity_remaining = item["quantity"]
+                        db.add(active_pulse)
+
+            db.commit()
+    except Exception:
+        log.exception("Failed to seed partner boulangeries")

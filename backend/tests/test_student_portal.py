@@ -36,6 +36,10 @@ class FakeQuery:
         self.join_calls.append((args, kwargs))
         return self
 
+    def outerjoin(self, *args, **kwargs):
+        self.join_calls.append((args, kwargs))
+        return self
+
     def filter(self, *args, **kwargs):
         self.filter_calls.append((args, kwargs))
         return self
@@ -455,6 +459,40 @@ class StudentPortalServiceTests(IsolatedAsyncioTestCase):
         self.assertFalse(self.student_user.is_verified)
         self.assertEqual(self.student_user.id_verification_status, "manual_review")
 
+    def test_extract_card_dates_locally(self):
+        d1, d2 = student_portal._extract_card_dates_locally("ANNEE UNIVERSITAIRE 2025-2026")
+        self.assertIsNotNone(d1)
+        self.assertIsNotNone(d2)
+        self.assertEqual(d1.year, 2025)
+        self.assertEqual(d2.year, 2026)
+
+        d1, d2 = student_portal._extract_card_dates_locally("Carte Etudiant EPITECH 2024/2025")
+        self.assertEqual(d1.year, 2024)
+        self.assertEqual(d2.year, 2025)
+
+        d1, d2 = student_portal._extract_card_dates_locally("Valable jusqu'au 31/08/2026")
+        self.assertEqual(d2.day, 31)
+        self.assertEqual(d2.month, 8)
+        self.assertEqual(d2.year, 2026)
+
+    async def test_verify_student_id_with_local_date_extraction_without_llm(self):
+        db = FakeDB({})
+        today = datetime.now(timezone.utc).date()
+        current_year = today.year
+
+        ocr_content = f"REPUBLIQUE FRANCAISE\nCARTE D'ETUDIANT\nIZLY\nANNEE {current_year}-{current_year + 1}"
+
+        async def fake_extract(upload):
+            return ocr_content
+
+        with patch.object(student_portal, "_extract_ocr_text", side_effect=fake_extract):
+            response = await student_portal.verify_student_id(db, self.student_user, DummyUpload(b"fake image"))
+
+        self.assertTrue(response.verified)
+        self.assertEqual(response.status, "verified")
+        self.assertTrue(self.student_user.is_verified)
+        self.assertEqual(self.student_user.id_verification_status, "verified")
+
 
 class StudentPortalRouteTests(TestCase):
     def _make_app(self, db: FakeDB) -> FastAPI:
@@ -462,7 +500,16 @@ class StudentPortalRouteTests(TestCase):
         app.include_router(student_portal_router)
 
         async def override_student():
-            return SimpleNamespace(id=uuid4(), role=models.UserRole.STUDENT.value, is_verified=True)
+            return SimpleNamespace(
+                id=uuid4(),
+                email="student@epitech.eu",
+                role=models.UserRole.STUDENT.value,
+                karma_score=50,
+                is_verified=True,
+                id_verification_status="verified",
+                student_card_start_date=None,
+                student_card_end_date=None,
+            )
 
         def override_db():
             yield db
@@ -530,3 +577,42 @@ class StudentPortalRouteTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()[0]["item_name"], "Baguette")
+
+    def test_update_student_profile_route(self):
+        fake_db = FakeDB({})
+        app = self._make_app(fake_db)
+        client = TestClient(app)
+
+        response = client.put(
+            "/student/profile",
+            json={
+                "full_name": "Muhammad Abdul MOIZ",
+                "university": "EPITECH Paris",
+                "study_level": "Promo 2026",
+                "phone": "+33 6 00 00 00 00",
+                "default_address": "40 Rue du Docteur Roux, 75015 Paris",
+                "dietary_preferences": "Halal",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["full_name"], "Muhammad Abdul MOIZ")
+        self.assertEqual(data["university"], "EPITECH Paris")
+        self.assertEqual(data["default_address"], "40 Rue du Docteur Roux, 75015 Paris")
+
+    def test_student_history_route(self):
+        fake_db = FakeDB(
+            {
+                models.Claim: FakeQuery(all_result=[]),
+                models.StudentLocation: FakeQuery(first_result=None),
+            }
+        )
+        app = self._make_app(fake_db)
+        client = TestClient(app)
+
+        response = client.get("/student/history")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["email"], "student@epitech.eu")
+        self.assertIn("claims", data)
+        self.assertIn("total_claims", data)

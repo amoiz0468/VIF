@@ -109,6 +109,19 @@ export const api = {
     });
   },
 
+  getStudentHistory: async () => {
+    return await request('/student/history');
+  },
+
+  updateStudentProfile: async (payload) => {
+    const updatedUser = await request('/student/profile', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+    setStoredUser(updatedUser);
+    return updatedUser;
+  },
+
   // Shopkeeper Portal
   createPulse: async (pulseData) => {
     return await request('/pulses', {

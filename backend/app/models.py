@@ -26,6 +26,13 @@ class User(Base):
     
     # New fields
     student_id_url = Column(String, nullable=True)
+    full_name = Column(String, nullable=True)
+    phone = Column(String, nullable=True)
+    university = Column(String, nullable=True)
+    study_level = Column(String, nullable=True)
+    dietary_preferences = Column(String, nullable=True)
+    default_address = Column(String, nullable=True)
+    bio = Column(String, nullable=True)
     shop_name = Column(String, nullable=True)
     shop_address = Column(String, nullable=True)
     siret = Column(String(14), nullable=True, unique=True, index=True)
