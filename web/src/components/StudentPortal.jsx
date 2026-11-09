@@ -22,17 +22,21 @@ import { api } from '../api';
 import SurplusRadarMap from './SurplusRadarMap';
 
 const PARIS_ZONES = [
-  { name: 'Le Marais', lat: 48.8575, lng: 2.3598, desc: 'Commerces & Cafés' },
-  { name: 'Sorbonne / Quartier Latin', lat: 48.8484, lng: 2.3438, desc: 'Universités & Écoles' },
-  { name: 'Bastille / 11ème', lat: 48.8531, lng: 2.3698, desc: 'Boulangeries Artisanales' },
-  { name: 'République', lat: 48.8675, lng: 2.3638, desc: 'Pôle Étudiant & Métro' },
-  { name: 'Montparnasse', lat: 48.8421, lng: 2.3219, desc: 'Campus Sud' },
+  { name: '40 Rue du Dr Roux (15ème)', lat: 48.8468616, lng: 2.3099973, address: '40 Rue du Docteur Roux, 75015 Paris', desc: 'Pasteur & Vaugirard' },
+  { name: 'Le Marais', lat: 48.8575, lng: 2.3598, address: '26 Rue des Rosiers, 75004 Paris', desc: 'Commerces & Cafés' },
+  { name: 'Sorbonne / Quartier Latin', lat: 48.8484, lng: 2.3438, address: '47 Boulevard Saint-Germain, 75005 Paris', desc: 'Universités & Écoles' },
+  { name: 'Bastille / 11ème', lat: 48.8531, lng: 2.3698, address: '17 Rue Breguet, 75011 Paris', desc: 'Boulangeries Artisanales' },
+  { name: 'République', lat: 48.8675, lng: 2.3638, address: '20 Rue Jean-Pierre Timbaud, 75011 Paris', desc: 'Pôle Étudiant & Métro' },
+  { name: 'Montparnasse', lat: 48.8421, lng: 2.3219, address: '14 Rue du Départ, 75015 Paris', desc: 'Campus Sud' },
 ];
 
 export default function StudentPortal({ user, onUserUpdate }) {
   // Location
   const [selectedZone, setSelectedZone] = useState(PARIS_ZONES[0]);
-  const [coords, setCoords] = useState({ lat: 48.8575, lng: 2.3598 });
+  const [coords, setCoords] = useState({ lat: PARIS_ZONES[0].lat, lng: PARIS_ZONES[0].lng });
+  const [studentAddress, setStudentAddress] = useState(PARIS_ZONES[0].address);
+  const [addressQuery, setAddressQuery] = useState('');
+  const [searchingAddress, setSearchingAddress] = useState(false);
   const [locating, setLocating] = useState(false);
 
   // Pulses feed
@@ -64,6 +68,54 @@ export default function StudentPortal({ user, onUserUpdate }) {
   useEffect(() => {
     fetchNearbyPulses();
   }, [coords]);
+
+  // Reverse geocode coordinates into exact street address (e.g. "40 Rue du Docteur Roux, 75015 Paris")
+  const reverseGeocode = async (lat, lng) => {
+    try {
+      const resp = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&accept-language=fr`
+      );
+      if (!resp.ok) return;
+      const data = await resp.json();
+      const addr = data.address || {};
+      const num = addr.house_number || '';
+      const road = addr.road || addr.pedestrian || addr.suburb || '';
+      const postcode = addr.postcode || '75015';
+      const city = addr.city || addr.town || 'Paris';
+
+      let exactAddr = '';
+      if (num && road) {
+        exactAddr = `${num} ${road}, ${postcode} ${city}`;
+      } else if (road) {
+        exactAddr = `${road}, ${postcode} ${city}`;
+      } else if (data.display_name) {
+        exactAddr = data.display_name.split(',').slice(0, 3).join(', ');
+      }
+      if (exactAddr) {
+        setStudentAddress(exactAddr);
+      }
+    } catch (e) {
+      console.warn('Reverse geocoding skipped:', e);
+    }
+  };
+
+  // Auto-detect exact GPS on mount
+  useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const { latitude, longitude } = pos.coords;
+          setCoords({ lat: latitude, lng: longitude });
+          setSelectedZone({ name: 'Exact GPS Location', lat: latitude, lng: longitude });
+          reverseGeocode(latitude, longitude);
+        },
+        () => {
+          // Keep default 40 Rue du Docteur Roux, 75015 Paris if permission declined
+        },
+        { enableHighAccuracy: true, timeout: 6000 }
+      );
+    }
+  }, []);
 
   // Persist active claim
   useEffect(() => {
@@ -114,6 +166,11 @@ export default function StudentPortal({ user, onUserUpdate }) {
   const handleZoneSelect = (zone) => {
     setSelectedZone(zone);
     setCoords({ lat: zone.lat, lng: zone.lng });
+    if (zone.address) {
+      setStudentAddress(zone.address);
+    } else {
+      reverseGeocode(zone.lat, zone.lng);
+    }
   };
 
   const handleUseMyLocation = () => {
@@ -123,18 +180,58 @@ export default function StudentPortal({ user, onUserUpdate }) {
     }
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setSelectedZone({ name: 'My Current Location (GPS)', lat: pos.coords.latitude, lng: pos.coords.longitude });
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        setCoords({ lat: latitude, lng: longitude });
+        setSelectedZone({ name: 'My Current Location (GPS)', lat: latitude, lng: longitude });
+        await reverseGeocode(latitude, longitude);
         setLocating(false);
-        showToast('Radar updated to your GPS coordinates!');
+        showToast('Locked onto your exact GPS street address!');
       },
       (err) => {
         console.error(err);
         setLocating(false);
-        showToast('Could not fetch GPS. Using selected Paris zone.', 'error');
-      }
+        showToast('Could not fetch GPS. Using 40 Rue du Docteur Roux, 75015 Paris.', 'error');
+      },
+      { enableHighAccuracy: true, timeout: 8000 }
     );
+  };
+
+  const handleMapLocationChange = async (lat, lng) => {
+    setCoords({ lat, lng });
+    setSelectedZone({ name: 'Custom Map Pin', lat, lng });
+    await reverseGeocode(lat, lng);
+    showToast('Student pin moved! Radar updated to new street address.');
+  };
+
+  const handleAddressSearch = async (e) => {
+    e.preventDefault();
+    const q = addressQuery.trim();
+    if (!q) return;
+    setSearchingAddress(true);
+    try {
+      const resp = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(q)}&limit=1&accept-language=fr`
+      );
+      const results = await resp.json();
+      if (Array.isArray(results) && results.length > 0) {
+        const hit = results[0];
+        const lat = parseFloat(hit.lat);
+        const lng = parseFloat(hit.lon);
+        setCoords({ lat, lng });
+        setSelectedZone({ name: q, lat, lng });
+        await reverseGeocode(lat, lng);
+        setAddressQuery('');
+        showToast(`Location set to ${hit.display_name.split(',').slice(0, 2).join(', ')}`);
+      } else {
+        showToast('Could not find that street address. Try adding "Paris".', 'error');
+      }
+    } catch (err) {
+      console.error('Address search failed:', err);
+      showToast('Error searching address.', 'error');
+    } finally {
+      setSearchingAddress(false);
+    }
   };
 
   const handleClaimPulse = async (pulse) => {
@@ -239,30 +336,57 @@ export default function StudentPortal({ user, onUserUpdate }) {
         {/* Left Column: Nearby Pulses Feed */}
         <div className="portal-main-column">
           {/* Location Selector Bar */}
-          <div className="location-toolbar glass-panel">
-            <div className="location-toolbar-left">
-              <MapPin size={18} color="#F59E0B" />
-              <span className="location-label">Zone:</span>
-              <div className="zone-pills">
-                {PARIS_ZONES.map((zone) => (
-                  <button
-                    key={zone.name}
-                    className={`zone-pill-btn ${selectedZone.name === zone.name ? 'active' : ''}`}
-                    onClick={() => handleZoneSelect(zone)}
-                  >
-                    {zone.name}
-                  </button>
-                ))}
+          <div className="location-toolbar glass-panel" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+              <div className="location-toolbar-left">
+                <MapPin size={18} color="#F59E0B" />
+                <span className="location-label">Zone:</span>
+                <div className="zone-pills">
+                  {PARIS_ZONES.map((zone) => (
+                    <button
+                      key={zone.name}
+                      className={`zone-pill-btn ${selectedZone.name === zone.name ? 'active' : ''}`}
+                      onClick={() => handleZoneSelect(zone)}
+                    >
+                      {zone.name}
+                    </button>
+                  ))}
+                </div>
               </div>
+              <button 
+                className="btn btn-outline btn-sm"
+                onClick={handleUseMyLocation}
+                disabled={locating}
+              >
+                <Navigation size={14} />
+                {locating ? 'Locating...' : 'Use Live GPS'}
+              </button>
             </div>
-            <button 
-              className="btn btn-outline btn-sm"
-              onClick={handleUseMyLocation}
-              disabled={locating}
-            >
-              <Navigation size={14} />
-              {locating ? 'Locating...' : 'Use GPS'}
-            </button>
+
+            {/* Exact Street Address Display & Search */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', paddingTop: '10px', borderTop: '1px solid #F1F5F9' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.86rem', color: '#0F172A' }}>
+                <span className="badge badge-indigo" style={{ padding: '3px 8px' }}>🎓 Exact Student Location</span>
+                <strong>{studentAddress}</strong>
+                <span style={{ color: '#64748B', fontSize: '0.76rem' }}>
+                  ({coords.lat.toFixed(5)}°N, {coords.lng.toFixed(5)}°E)
+                </span>
+              </div>
+
+              <form onSubmit={handleAddressSearch} style={{ display: 'flex', alignItems: 'center', gap: '6px', flex: '1', maxWidth: '340px' }}>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Enter exact street (e.g. 40 rue du Dr Roux, Paris)..."
+                  value={addressQuery}
+                  onChange={(e) => setAddressQuery(e.target.value)}
+                  style={{ padding: '6px 10px', fontSize: '0.8rem', height: '32px' }}
+                />
+                <button type="submit" className="btn btn-primary btn-sm" disabled={searchingAddress} style={{ height: '32px', padding: '0 12px', whiteSpace: 'nowrap' }}>
+                  {searchingAddress ? '...' : 'Set Address'}
+                </button>
+              </form>
+            </div>
           </div>
 
           {/* Active Claim Spotlight (If present) */}
@@ -344,9 +468,11 @@ export default function StudentPortal({ user, onUserUpdate }) {
           {/* Interactive Geofence Map: Exact Locations of Student & Boulangeries */}
           <SurplusRadarMap 
             studentCoords={coords}
+            studentAddress={studentAddress}
             pulses={pulses}
             selectedZoneName={selectedZone.name}
             onClaimPulse={handleClaimPulse}
+            onLocationChange={handleMapLocationChange}
             activeClaim={activeClaim}
             claimLoading={claimLoading}
           />

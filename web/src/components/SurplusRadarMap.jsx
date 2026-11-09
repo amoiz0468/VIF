@@ -1,19 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Maximize2, Minimize2 } from 'lucide-react';
 
-// Partner Boulangeries across Paris zones (shown on radar even when awaiting next surplus drop)
+// Partner Boulangeries across Paris zones (including 15ème / Pasteur / Rue du Dr Roux)
 const PARTNER_BOULANGERIES = [
+  { id: 'partner-12', shop_name: 'Boulangerie-Pâtisserie Pasteur', shop_address: '25 Boulevard Pasteur, 75015 Paris', lat: 48.8448, lng: 2.3125 },
+  { id: 'partner-13', shop_name: 'Le Moulin de la Vierge Volontaires', shop_address: '105 Rue Vercingétorix / Rue Lecourbe, 75015 Paris', lat: 48.8458, lng: 2.3068 },
+  { id: 'partner-14', shop_name: 'Maison Pichard Cambronne', shop_address: '88 Rue Cambronne, 75015 Paris', lat: 48.8439, lng: 2.3032 },
+  { id: 'partner-11', shop_name: 'Boulangerie Thierry Marx', shop_address: '51 Rue de Vaugirard, 75015 Paris', lat: 48.8442, lng: 2.3185 },
+  { id: 'partner-10', shop_name: 'Maison Kayser Montparnasse', shop_address: '14 Rue du Départ, 75015 Paris', lat: 48.8428, lng: 2.3235 },
   { id: 'partner-1', shop_name: 'Boulangerie Poilâne du Marais', shop_address: '38 Rue de Bretagne, 75003 Paris', lat: 48.8615, lng: 2.3622 },
   { id: 'partner-2', shop_name: 'Maison Landemaine Saint-Paul', shop_address: '26 Rue des Rosiers, 75004 Paris', lat: 48.8568, lng: 2.3585 },
   { id: 'partner-3', shop_name: 'Du Pain et des Idées', shop_address: '34 Rue Yves Toudic, 75010 Paris', lat: 48.8710, lng: 2.3628 },
   { id: 'partner-4', shop_name: 'Boulangerie Utopie', shop_address: '20 Rue Jean-Pierre Timbaud, 75011 Paris', lat: 48.8648, lng: 2.3682 },
   { id: 'partner-5', shop_name: 'La Maison d’Isabelle', shop_address: '47ter Bd Saint-Germain, 75005 Paris', lat: 48.8502, lng: 2.3482 },
-  { id: 'partner-6', shop_name: 'Boulangerie Chambelland', shop_address: '14 Rue Ternaux, 75011 Paris', lat: 48.8625, lng: 2.3725 },
-  { id: 'partner-7', shop_name: 'Le Grenier à Pain Sorbonne', shop_address: '52 Avenue d’Italie / Quartier Latin, Paris', lat: 48.8465, lng: 2.3415 },
   { id: 'partner-8', shop_name: 'Boulangerie Moderne Rabineau', shop_address: '16 Rue des Fossés Saint-Jacques, 75005 Paris', lat: 48.8452, lng: 2.3448 },
   { id: 'partner-9', shop_name: 'Ten Belles Bread Bastille', shop_address: '17-19 Rue Breguet, 75011 Paris', lat: 48.8555, lng: 2.3718 },
-  { id: 'partner-10', shop_name: 'Maison Kayser Montparnasse', shop_address: '14 Rue du Départ, 75015 Paris', lat: 48.8428, lng: 2.3235 },
-  { id: 'partner-11', shop_name: 'Boulangerie Thierry Marx', shop_address: '51 Rue de Laborde / Vaugirard, Paris', lat: 48.8442, lng: 2.3185 },
 ];
 
 // Calculate Haversine distance in meters between two lat/lng coordinates
@@ -30,9 +31,11 @@ function getDistanceMeters(lat1, lng1, lat2, lng2) {
 
 export default function SurplusRadarMap({ 
   studentCoords, 
+  studentAddress = '40 Rue du Docteur Roux, 75015 Paris',
   pulses = [], 
   selectedZoneName = 'Your Location',
   onClaimPulse,
+  onLocationChange,
   activeClaim = null,
   claimLoading = false
 }) {
@@ -44,7 +47,7 @@ export default function SurplusRadarMap({
   const [isExpanded, setIsExpanded] = useState(false);
   const [mapReady, setMapReady] = useState(false);
 
-  // 1. Initialize Leaflet Map with free OpenStreetMap tiles (no API key required)
+  // 1. Initialize Leaflet Map with free OpenStreetMap tiles
   useEffect(() => {
     let checkInterval;
 
@@ -54,11 +57,10 @@ export default function SurplusRadarMap({
           const L = window.L;
           const map = L.map(mapContainerRef.current, {
             center: [studentCoords.lat, studentCoords.lng],
-            zoom: 14,
+            zoom: 15,
             zoomControl: true,
           });
 
-          // Standard OpenStreetMap tile server (100% free, no API key required)
           L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
             maxZoom: 19,
@@ -96,7 +98,7 @@ export default function SurplusRadarMap({
     };
   }, []);
 
-  // 2. Render Student Marker, 1km Geofence Circle, and Boulangerie Markers
+  // 2. Render Student Marker (with exact street address), 1km Geofence Circle, and Boulangeries
   useEffect(() => {
     if (!mapReady || !mapInstanceRef.current || !window.L || !studentCoords) return;
     const L = window.L;
@@ -106,21 +108,24 @@ export default function SurplusRadarMap({
     const studentLat = Number(studentCoords.lat);
     const studentLng = Number(studentCoords.lng);
 
-    // Smoothly fly to student's position
-    map.flyTo([studentLat, studentLng], 14, { duration: 1.0 });
+    // Smoothly fly to student's exact street position
+    map.flyTo([studentLat, studentLng], 15, { duration: 1.0 });
 
-    // Student Icon
+    const shortLabel = studentAddress
+      ? studentAddress.split(',')[0]
+      : 'You (Student)';
+
     const studentIcon = L.divIcon({
       className: 'student-custom-marker-wrapper',
       html: `
         <div class="student-marker-container">
           <div class="student-marker-pulse-ring"></div>
-          <div class="student-marker-core" title="Your Student Location">🎓</div>
-          <div class="student-marker-label">You (Student)</div>
+          <div class="student-marker-core" title="Drag to adjust your exact location">🎓</div>
+          <div class="student-marker-label">🎓 ${shortLabel}</div>
         </div>
       `,
-      iconSize: [100, 56],
-      iconAnchor: [50, 28],
+      iconSize: [160, 58],
+      iconAnchor: [80, 24],
     });
 
     if (studentMarkerRef.current) {
@@ -129,19 +134,27 @@ export default function SurplusRadarMap({
     } else {
       studentMarkerRef.current = L.marker([studentLat, studentLng], {
         icon: studentIcon,
+        draggable: true,
         zIndexOffset: 1000,
       }).addTo(map);
+
+      studentMarkerRef.current.on('dragend', (evt) => {
+        const pos = evt.target.getLatLng();
+        if (onLocationChange) {
+          onLocationChange(pos.lat, pos.lng);
+        }
+      });
     }
 
     studentMarkerRef.current.bindPopup(`
       <div class="boulangerie-popup-card">
         <div class="popup-header">
-          <h4 class="popup-title">🎓 Your Student Location</h4>
+          <h4 class="popup-title">🎓 Your Exact Student Location</h4>
         </div>
-        <p class="popup-address">${selectedZoneName}</p>
+        <p class="popup-address" style="font-weight:600;color:#0F172A;">📍 ${studentAddress}</p>
         <div class="popup-item" style="background:#EFF6FF;border-color:#BFDBFE;color:#1E40AF;">
-          <strong>GPS:</strong> ${studentLat.toFixed(4)}° N, ${studentLng.toFixed(4)}° E<br/>
-          <span>Receiving instant alerts within 1,000m radius.</span>
+          <strong>GPS Coordinates:</strong> ${studentLat.toFixed(5)}° N, ${studentLng.toFixed(5)}° E<br/>
+          <span>1,000m real-time geofence active around this address. (Tip: You can drag your blue pin!)</span>
         </div>
       </div>
     `);
@@ -160,7 +173,6 @@ export default function SurplusRadarMap({
       }).addTo(map);
     }
 
-    // Clear and re-render Boulangerie markers
     markersLayer.clearLayers();
 
     // A) Render Live Surplus Pulses from Backend
@@ -170,7 +182,6 @@ export default function SurplusRadarMap({
       let bLng = pulse.longitude ? Number(pulse.longitude) : null;
 
       if (!bLat || !bLng) {
-        // Fallback offset around student if shop geometry wasn't set
         const angle = (idx * 137.5 * Math.PI) / 180;
         const distDeg = 0.0035;
         bLat = studentLat + Math.cos(angle) * distDeg;
@@ -193,8 +204,8 @@ export default function SurplusRadarMap({
             <div class="boulangerie-marker-label">${pulse.shop_name}</div>
           </div>
         `,
-        iconSize: [120, 62],
-        iconAnchor: [60, 48],
+        iconSize: [130, 62],
+        iconAnchor: [65, 48],
       });
 
       const popupHtml = `
@@ -236,12 +247,12 @@ export default function SurplusRadarMap({
       });
     });
 
-    // B) Also render nearby Partner Boulangeries on the map so student always sees bakeries around them
+    // B) Render Partner Boulangeries not already in active pulses
     PARTNER_BOULANGERIES.forEach((partner) => {
       if (renderedShopNames.has(partner.shop_name.toLowerCase())) return;
 
       const distMeters = Math.round(getDistanceMeters(studentLat, studentLng, partner.lat, partner.lng));
-      const inGeofence = distMeters <= 1200;
+      const inGeofence = distMeters <= 1000;
 
       const partnerIcon = L.divIcon({
         className: 'boulangerie-custom-marker-wrapper',
@@ -268,8 +279,8 @@ export default function SurplusRadarMap({
             <strong>Vif Partner Boulangerie</strong>
             <p class="popup-desc">
               ${inGeofence 
-                ? 'Inside your 1km geofence! You will be notified immediately when surplus is posted.' 
-                : 'Partner bakery in Paris. Move closer or select this zone to enter its 1km priority radar.'}
+                ? 'Inside your 1km geofence! Click Refresh Radar to check active drops.' 
+                : 'Partner bakery in Paris outside your current 1km circle.'}
             </p>
           </div>
         </div>
@@ -283,7 +294,7 @@ export default function SurplusRadarMap({
           offset: [0, -28],
         });
     });
-  }, [mapReady, studentCoords, pulses, selectedZoneName, activeClaim, claimLoading, onClaimPulse]);
+  }, [mapReady, studentCoords, studentAddress, pulses, selectedZoneName, activeClaim, claimLoading, onClaimPulse, onLocationChange]);
 
   const toggleExpand = () => {
     setIsExpanded((prev) => !prev);
@@ -307,13 +318,10 @@ export default function SurplusRadarMap({
 
         <div className="radar-map-controls">
           <span className="radar-legend-item">
-            <span className="legend-dot legend-student"></span> 🎓 You (Student)
+            <span className="legend-dot legend-student"></span> 🎓 You ({studentAddress.split(',')[0]})
           </span>
           <span className="radar-legend-item">
             <span className="legend-dot legend-bakery"></span> 🥖 Active Surplus ({pulses.length})
-          </span>
-          <span className="radar-legend-item">
-            <span className="legend-dot" style={{ background: '#10B981' }}></span> 🥐 Partner Boulangeries
           </span>
           <button 
             type="button" 
@@ -337,7 +345,7 @@ export default function SurplusRadarMap({
       </div>
 
       <div className="radar-map-footer-hint">
-        <span>📍 <strong>Blue Circle:</strong> Your 1 km student geofence ({studentCoords.lat.toFixed(4)}°N, {studentCoords.lng.toFixed(4)}°E). Click any boulangerie pin (🥖 / 🥐) to inspect its address, distance, and available meals.</span>
+        <span>📍 <strong>Your Exact Location:</strong> <strong style={{ color: '#0F172A' }}>{studentAddress}</strong> ({studentCoords.lat.toFixed(5)}°N, {studentCoords.lng.toFixed(5)}°E) · Drag your blue pin 🎓 or search any street address above.</span>
       </div>
     </div>
   );
