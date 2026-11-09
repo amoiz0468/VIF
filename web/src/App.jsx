@@ -7,14 +7,50 @@ import AuthModal from './components/AuthModal';
 import Footer from './components/Footer';
 import { api, getStoredUser, getStoredToken, removeStoredToken, removeStoredUser, setStoredUser } from './api';
 
+const VALID_STUDENT_PATHS = [
+  '/student/radar',
+  '/student/map',
+  '/student/verification',
+  '/student/history',
+  '/student/profile',
+];
+
+function resolveStudentPath(pathname) {
+  if (VALID_STUDENT_PATHS.includes(pathname)) {
+    return pathname;
+  }
+  return '/student/radar';
+}
+
 export default function App() {
   const [user, setUser] = useState(() => getStoredUser());
   const [initialLoading, setInitialLoading] = useState(true);
+  const [currentPath, setCurrentPath] = useState(() =>
+    resolveStudentPath(window.location.pathname)
+  );
 
   // Modal State
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authInitialTab, setAuthInitialTab] = useState('login');
   const [authRoleChoice, setAuthRoleChoice] = useState('student');
+
+  // Sync browser URL back/forward navigation
+  useEffect(() => {
+    const handlePopState = () => {
+      setCurrentPath(resolveStudentPath(window.location.pathname));
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const handleNavigatePage = (nextPath) => {
+    const target = resolveStudentPath(nextPath);
+    if (window.location.pathname !== target) {
+      window.history.pushState({}, '', target);
+    }
+    setCurrentPath(target);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   // Verify real user session on mount
   useEffect(() => {
@@ -25,6 +61,13 @@ export default function App() {
           const profile = await api.getCurrentUser();
           setUser(profile);
           setStoredUser(profile);
+          if (
+            profile.role === 'student' &&
+            !VALID_STUDENT_PATHS.includes(window.location.pathname)
+          ) {
+            window.history.replaceState({}, '', '/student/radar');
+            setCurrentPath('/student/radar');
+          }
         } catch (err) {
           console.warn('Session expired or invalid token:', err);
           removeStoredToken();
@@ -47,10 +90,14 @@ export default function App() {
     removeStoredToken();
     removeStoredUser();
     setUser(null);
+    window.history.pushState({}, '', '/');
   };
 
   const handleAuthSuccess = (authUser) => {
     setUser(authUser);
+    if (authUser?.role === 'student') {
+      handleNavigatePage('/student/radar');
+    }
   };
 
   if (initialLoading) {
@@ -70,6 +117,8 @@ export default function App() {
         user={user}
         onLogout={handleLogout}
         onOpenAuth={handleOpenAuth}
+        currentPath={currentPath}
+        onNavigatePage={handleNavigatePage}
         karmaScore={user?.karma_score}
       />
 
@@ -80,7 +129,9 @@ export default function App() {
           />
         ) : user.role === 'student' ? (
           <StudentPortal 
-            user={user} 
+            user={user}
+            currentPath={currentPath}
+            onNavigatePage={handleNavigatePage}
             onUserUpdate={(updated) => {
               setUser(updated);
               setStoredUser(updated);
