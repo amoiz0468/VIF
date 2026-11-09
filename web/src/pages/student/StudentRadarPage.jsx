@@ -16,7 +16,6 @@ import {
   User as UserIcon,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import SurplusRadarMap from '../../components/SurplusRadarMap';
 
 export default function StudentRadarPage({
   user,
@@ -289,23 +288,8 @@ export default function StudentRadarPage({
         </div>
       )}
 
-      {/* Interactive Geofence Map */}
-      <SurplusRadarMap
-        studentCoords={coords}
-        studentAddress={studentAddress}
-        pulses={pulses}
-        selectedZoneName={selectedZone.name}
-        onClaimPulse={onClaimPulse}
-        onLocationChange={onMapLocationChange}
-        activeClaim={activeClaim}
-        selectedRouteTarget={selectedRouteTarget}
-        onClearRouteTarget={() => setSelectedRouteTarget(null)}
-        onRouteCalculated={setRouteInfo}
-        claimLoading={claimLoading}
-      />
-
       {/* Surplus Feed List */}
-      <div className="feed-header-row" style={{ marginTop: '22px' }}>
+      <div className="feed-header-row" style={{ marginTop: '10px' }}>
         <h3 className="feed-title">Available Bakery Surplus Nearby ({pulses.length})</h3>
         <button
           className="btn btn-secondary btn-sm"
@@ -414,3 +398,4 @@ export default function StudentRadarPage({
     </div>
   );
 }
+
