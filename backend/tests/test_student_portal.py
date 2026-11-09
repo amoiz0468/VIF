@@ -36,6 +36,10 @@ class FakeQuery:
         self.join_calls.append((args, kwargs))
         return self
 
+    def outerjoin(self, *args, **kwargs):
+        self.join_calls.append((args, kwargs))
+        return self
+
     def filter(self, *args, **kwargs):
         self.filter_calls.append((args, kwargs))
         return self
@@ -496,7 +500,16 @@ class StudentPortalRouteTests(TestCase):
         app.include_router(student_portal_router)
 
         async def override_student():
-            return SimpleNamespace(id=uuid4(), role=models.UserRole.STUDENT.value, is_verified=True)
+            return SimpleNamespace(
+                id=uuid4(),
+                email="student@epitech.eu",
+                role=models.UserRole.STUDENT.value,
+                karma_score=50,
+                is_verified=True,
+                id_verification_status="verified",
+                student_card_start_date=None,
+                student_card_end_date=None,
+            )
 
         def override_db():
             yield db
@@ -564,3 +577,42 @@ class StudentPortalRouteTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()[0]["item_name"], "Baguette")
+
+    def test_update_student_profile_route(self):
+        fake_db = FakeDB({})
+        app = self._make_app(fake_db)
+        client = TestClient(app)
+
+        response = client.put(
+            "/student/profile",
+            json={
+                "full_name": "Muhammad Abdul MOIZ",
+                "university": "EPITECH Paris",
+                "study_level": "Promo 2026",
+                "phone": "+33 6 00 00 00 00",
+                "default_address": "40 Rue du Docteur Roux, 75015 Paris",
+                "dietary_preferences": "Halal",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["full_name"], "Muhammad Abdul MOIZ")
+        self.assertEqual(data["university"], "EPITECH Paris")
+        self.assertEqual(data["default_address"], "40 Rue du Docteur Roux, 75015 Paris")
+
+    def test_student_history_route(self):
+        fake_db = FakeDB(
+            {
+                models.Claim: FakeQuery(all_result=[]),
+                models.StudentLocation: FakeQuery(first_result=None),
+            }
+        )
+        app = self._make_app(fake_db)
+        client = TestClient(app)
+
+        response = client.get("/student/history")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["email"], "student@epitech.eu")
+        self.assertIn("claims", data)
+        self.assertIn("total_claims", data)

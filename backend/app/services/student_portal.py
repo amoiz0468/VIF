@@ -16,7 +16,7 @@ import httpx
 from sqlalchemy import func
 from sqlalchemy.orm import Session, sessionmaker
 
-from .. import models, schemas
+from .. import auth, models, schemas
 from . import karma_engine
 
 log = logging.getLogger("vif.student_portal")
@@ -513,10 +513,50 @@ async def create_claim(db: Session, current_user: models.User, pulse_id: UUID, s
     return claim
 
 
+def _extract_student_profile_from_ocr(extracted_text: str) -> Tuple[Optional[str], Optional[str]]:
+    """Extract student full name and university from OCR text if present."""
+    if not extracted_text:
+        return None, None
+
+    text_upper = extracted_text.upper()
+    university = None
+    for uni_key, uni_label in (
+        ("EPITECH", "EPITECH - European Institute of Technology"),
+        ("SORBONNE", "Sorbonne Université"),
+        ("SCIENCES PO", "Sciences Po Paris"),
+        ("DAUPHINE", "Université Paris Dauphine - PSL"),
+        ("SACLAY", "Université Paris-Saclay"),
+        ("PANTHEON", "Université Paris 1 Panthéon-Sorbonne"),
+        ("DESCARTES", "Université Paris Cité"),
+        ("CITÉ", "Université Paris Cité"),
+        ("POLYTECHNIQUE", "Institut Polytechnique de Paris"),
+        ("42", "École 42 Paris"),
+    ):
+        if uni_key in text_upper:
+            university = uni_label
+            break
+
+    prenom_match = re.search(r"PR[EÉ]NOM\s*[:\-]?\s*([A-Za-zÀ-ÿ\-\s]{2,40})", extracted_text, re.IGNORECASE)
+    nom_match = re.search(r"\bNOM\s*[:\-]?\s*([A-Za-zÀ-ÿ\-\s]{2,40})", extracted_text, re.IGNORECASE)
+
+    prenom = prenom_match.group(1).splitlines()[0].strip() if prenom_match else ""
+    nom = nom_match.group(1).splitlines()[0].strip() if nom_match else ""
+
+    full_name = f"{prenom} {nom}".strip() if (prenom or nom) else None
+    return full_name, university
+
+
 async def verify_student_id(db: Session, current_user: models.User, upload: UploadFile) -> schemas.StudentIdVerificationResponse:
     extracted_text = await _extract_ocr_text(upload)
     _record_ocr_output(extracted_text)
     matched_keywords = _find_verification_keywords(extracted_text)
+
+    # Auto-populate profile fields from OCR if not yet set by the student
+    ocr_name, ocr_uni = _extract_student_profile_from_ocr(extracted_text)
+    if ocr_name and not getattr(current_user, "full_name", None):
+        current_user.full_name = ocr_name
+    if ocr_uni and not getattr(current_user, "university", None):
+        current_user.university = ocr_uni
 
     # 1. Try local extraction first (handles academic years and expiration dates)
     start_date, end_date = _extract_card_dates_locally(extracted_text)
@@ -640,6 +680,147 @@ def register_location(
     db.commit()
     db.refresh(student_location)
     return student_location
+
+
+def _normalize_claim_status(raw_status: object) -> str:
+    if hasattr(raw_status, "value"):
+        return str(getattr(raw_status, "value")).lower()
+    text_val = str(raw_status or "pending").lower()
+    if "." in text_val:
+        text_val = text_val.split(".")[-1]
+    return text_val
+
+
+def get_student_history(db: Session, current_user: models.User) -> schemas.StudentHistoryResponse:
+    """Return comprehensive student history including profile details, verification dates, location, and all claims."""
+    rows = (
+        db.query(models.Claim, models.Pulse, models.Shop)
+        .outerjoin(models.Pulse, models.Pulse.id == models.Claim.pulse_id)
+        .outerjoin(models.Shop, models.Shop.id == models.Claim.shop_id)
+        .filter(models.Claim.student_user_id == current_user.id)
+        .order_by(models.Claim.claimed_at.desc())
+        .all()
+    )
+
+    claims_list: List[schemas.StudentClaimHistoryItem] = []
+    collected_count = 0
+    pending_count = 0
+    ghosted_count = 0
+
+    for claim, pulse, shop in rows:
+        status_str = _normalize_claim_status(claim.status)
+        if status_str == models.ClaimStatus.COLLECTED.value:
+            collected_count += 1
+            karma_delta = 5
+        elif status_str == models.ClaimStatus.GHOSTED.value:
+            ghosted_count += 1
+            karma_delta = -10
+        else:
+            pending_count += 1
+            karma_delta = 0
+
+        shop_lat, shop_lng = _extract_point_coordinates(shop.location) if shop else (None, None)
+
+        claims_list.append(
+            schemas.StudentClaimHistoryItem(
+                claim_id=claim.id,
+                pulse_id=claim.pulse_id,
+                shop_id=claim.shop_id,
+                shop_name=shop.name if shop else "Boulangerie Partner",
+                shop_address=shop.address if shop else None,
+                shop_siret=shop.siret if shop else None,
+                latitude=shop_lat,
+                longitude=shop_lng,
+                item_name=pulse.item_name if pulse else "Surplus Bakery Basket",
+                description=pulse.description if pulse else None,
+                quantity=claim.quantity or 1,
+                status=status_str,
+                qr_code_token=claim.qr_code_token or claim.qr_token,
+                claimed_at=_ensure_aware_utc(claim.claimed_at),
+                claim_deadline=_ensure_aware_utc(claim.claim_deadline),
+                collected_at=_ensure_aware_utc(claim.collected_at) if claim.collected_at else None,
+                ghosted_at=_ensure_aware_utc(claim.ghosted_at) if claim.ghosted_at else None,
+                karma_delta=karma_delta,
+            )
+        )
+
+    last_loc = (
+        db.query(models.StudentLocation)
+        .filter(models.StudentLocation.student_user_id == current_user.id)
+        .order_by(models.StudentLocation.updated_at.desc())
+        .first()
+    )
+    last_lat, last_lng = _extract_point_coordinates(last_loc.location) if last_loc else (None, None)
+
+    total_claims = len(claims_list)
+    # Estimate impact: each claimed/collected basket saves ~0.65 kg food waste and ~€6.50 student meal value
+    impact_meals = collected_count + pending_count
+    estimated_food_saved_kg = round(impact_meals * 0.65, 2)
+    estimated_money_saved_eur = round(impact_meals * 6.50, 2)
+
+    return schemas.StudentHistoryResponse(
+        student_id=current_user.id,
+        email=current_user.email,
+        full_name=getattr(current_user, "full_name", None),
+        phone=getattr(current_user, "phone", None),
+        university=getattr(current_user, "university", None),
+        study_level=getattr(current_user, "study_level", None),
+        dietary_preferences=getattr(current_user, "dietary_preferences", None),
+        default_address=getattr(current_user, "default_address", None),
+        bio=getattr(current_user, "bio", None),
+        karma_score=current_user.karma_score if current_user.karma_score is not None else 50,
+        is_verified=bool(current_user.is_verified),
+        id_verification_status=current_user.id_verification_status or "pending",
+        student_card_start_date=current_user.student_card_start_date,
+        student_card_end_date=current_user.student_card_end_date,
+        last_latitude=last_lat,
+        last_longitude=last_lng,
+        last_location_updated_at=_ensure_aware_utc(last_loc.updated_at) if last_loc and last_loc.updated_at else None,
+        total_claims=total_claims,
+        collected_count=collected_count,
+        pending_count=pending_count,
+        ghosted_count=ghosted_count,
+        estimated_food_saved_kg=estimated_food_saved_kg,
+        estimated_money_saved_eur=estimated_money_saved_eur,
+        claims=claims_list,
+    )
+
+
+def update_student_profile(
+    db: Session,
+    current_user: models.User,
+    payload: schemas.StudentProfileUpdate,
+) -> models.User:
+    """Update student profile fields in PostgreSQL."""
+    if payload.email is not None and payload.email != current_user.email:
+        allowed_domains = [".edu", ".eu", ".ac.uk", ".univ"]
+        if not any(payload.email.endswith(domain) for domain in allowed_domains):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Students must use a university email address (.edu, .eu, .ac.uk, .univ)",
+            )
+        existing = db.query(models.User).filter(models.User.email == payload.email, models.User.id != current_user.id).first()
+        if existing:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email is already registered to another user")
+        current_user.email = payload.email
+
+    for field in ("full_name", "phone", "university", "study_level", "dietary_preferences", "default_address", "bio"):
+        value = getattr(payload, field, None)
+        if value is not None:
+            setattr(current_user, field, value.strip() if isinstance(value, str) else value)
+
+    if payload.new_password:
+        if len(payload.new_password.strip()) < 6:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="New password must be at least 6 characters long",
+            )
+        current_user.hashed_password = auth.get_password_hash(payload.new_password.strip())
+
+    db.add(current_user)
+    db.commit()
+    db.refresh(current_user)
+    return current_user
 
 
 PARTNER_BOULANGERIES_SEED = [

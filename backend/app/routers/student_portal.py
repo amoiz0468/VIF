@@ -83,3 +83,21 @@ async def verify_student_id(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Please upload an image file")
     return await student_portal_service.verify_student_id(db, current_user, upload)
 
+
+@router.get("/student/history", response_model=schemas.StudentHistoryResponse)
+async def get_student_history(
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.check_student_role),
+):
+    return student_portal_service.get_student_history(db, current_user)
+
+
+@router.put("/student/profile", response_model=schemas.User)
+async def update_student_profile(
+    payload: schemas.StudentProfileUpdate,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(auth.check_student_role),
+):
+    return student_portal_service.update_student_profile(db, current_user, payload)
+
+

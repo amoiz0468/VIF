@@ -28,6 +28,20 @@ def ensure_student_portal_schema() -> None:
             connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS student_card_start_date DATE"))
         if "student_card_end_date" not in existing_columns:
             connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS student_card_end_date DATE"))
+        if "full_name" not in existing_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name TEXT"))
+        if "phone" not in existing_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT"))
+        if "university" not in existing_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS university TEXT"))
+        if "study_level" not in existing_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS study_level TEXT"))
+        if "dietary_preferences" not in existing_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS dietary_preferences TEXT"))
+        if "default_address" not in existing_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS default_address TEXT"))
+        if "bio" not in existing_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS bio TEXT"))
 
         pulse_columns = {column["name"] for column in inspector.get_columns("pulses")}
         if "quantity_remaining" not in pulse_columns:
