@@ -51,6 +51,8 @@ export default function StudentPortal({ user, onUserUpdate }) {
   });
   const [timeRemaining, setTimeRemaining] = useState('');
   const [claimLoading, setClaimLoading] = useState(false);
+  const [selectedRouteTarget, setSelectedRouteTarget] = useState(null);
+  const [routeInfo, setRouteInfo] = useState(null);
 
   // Verification upload state
   const [uploadingId, setUploadingId] = useState(false);
@@ -153,7 +155,23 @@ export default function StudentPortal({ user, onUserUpdate }) {
     setFeedError(null);
     try {
       const data = await api.getNearbyPulses(coords.lat, coords.lng);
-      setPulses(Array.isArray(data) ? data : []);
+      const list = Array.isArray(data) ? data : [];
+      setPulses(list);
+
+      // If activeClaim exists without coordinates, enrich it from matching pulse
+      if (activeClaim && (!activeClaim.latitude || !activeClaim.longitude)) {
+        const matched = list.find(
+          (p) => p.pulse_id === activeClaim.pulse_id || p.shop_name === activeClaim.shop_name
+        );
+        if (matched && matched.latitude && matched.longitude) {
+          setActiveClaim((prev) => ({
+            ...prev,
+            latitude: matched.latitude,
+            longitude: matched.longitude,
+            distance_meters: matched.distance_meters,
+          }));
+        }
+      }
     } catch (err) {
       console.error('Failed to fetch nearby pulses from backend:', err);
       setFeedError(err.message || 'Could not connect to nearby feed.');
@@ -246,9 +264,13 @@ export default function StudentPortal({ user, onUserUpdate }) {
         ...res,
         shop_name: pulse.shop_name,
         shop_address: pulse.shop_address,
-        item_name: pulse.item_name
+        item_name: pulse.item_name,
+        latitude: pulse.latitude,
+        longitude: pulse.longitude,
+        distance_meters: pulse.distance_meters,
       });
-      showToast(`Meal reserved at ${pulse.shop_name}! Active 20-min QR challenge generated.`);
+      setSelectedRouteTarget(null);
+      showToast(`Meal reserved at ${pulse.shop_name}! Street route & 20-min QR challenge active.`);
       confetti({
         particleCount: 80,
         spread: 60,
@@ -421,6 +443,28 @@ export default function StudentPortal({ user, onUserUpdate }) {
                   <p className="claim-bakery-addr">
                     <MapPin size={14} color="#94A3B8" /> {activeClaim.shop_address || 'Paris'}
                   </p>
+                  {routeInfo && (
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      flexWrap: 'wrap',
+                      background: '#ECFDF5',
+                      border: '1px solid #A7F3D0',
+                      borderRadius: '8px',
+                      padding: '8px 12px',
+                      marginBottom: '12px',
+                      fontSize: '0.84rem',
+                      fontWeight: 700,
+                      color: '#065F46'
+                    }}>
+                      <span>🚶 {routeInfo.walkMinutes} min walk</span>
+                      <span>·</span>
+                      <span>🚲 {routeInfo.bikeMinutes} min bike</span>
+                      <span>·</span>
+                      <span>📏 {routeInfo.distanceMeters}m via road (see green route on map below)</span>
+                    </div>
+                  )}
                   <div className="claim-item-highlight">
                     <span className="claim-item-name">{activeClaim.item_name || 'Surplus Meal'}</span>
                   </div>
@@ -450,32 +494,37 @@ export default function StudentPortal({ user, onUserUpdate }) {
                     >
                       <RefreshCw size={14} /> Refresh Radar
                     </button>
-                    <button 
-                      className="btn btn-outline btn-sm"
-                      onClick={() => {
-                        setActiveClaim(null);
-                        showToast('Reservation dismissed from view.');
-                      }}
-                    >
-                      Dismiss View
-                    </button>
+                      <button 
+                        className="btn btn-outline btn-sm"
+                        onClick={() => {
+                          setActiveClaim(null);
+                          setSelectedRouteTarget(null);
+                          setRouteInfo(null);
+                          showToast('Reservation dismissed from view.');
+                        }}
+                      >
+                        Dismiss View
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Interactive Geofence Map: Exact Locations of Student & Boulangeries */}
-          <SurplusRadarMap 
-            studentCoords={coords}
-            studentAddress={studentAddress}
-            pulses={pulses}
-            selectedZoneName={selectedZone.name}
-            onClaimPulse={handleClaimPulse}
-            onLocationChange={handleMapLocationChange}
-            activeClaim={activeClaim}
-            claimLoading={claimLoading}
-          />
+            {/* Interactive Geofence Map: Exact Locations of Student & Boulangeries */}
+            <SurplusRadarMap 
+              studentCoords={coords}
+              studentAddress={studentAddress}
+              pulses={pulses}
+              selectedZoneName={selectedZone.name}
+              onClaimPulse={handleClaimPulse}
+              onLocationChange={handleMapLocationChange}
+              activeClaim={activeClaim}
+              selectedRouteTarget={selectedRouteTarget}
+              onClearRouteTarget={() => setSelectedRouteTarget(null)}
+              onRouteCalculated={setRouteInfo}
+              claimLoading={claimLoading}
+            />
 
           {/* Surplus Feed List */}
           <div className="feed-header-row">
@@ -524,6 +573,9 @@ export default function StudentPortal({ user, onUserUpdate }) {
                       <span className="badge badge-indigo">
                         {pulse.distance_meters !== undefined ? `${Math.round(pulse.distance_meters)}m away` : '<1 km'}
                       </span>
+                      <span className="badge badge-emerald" title="Estimated walking time from your location">
+                        🚶 ~{Math.max(1, Math.round((pulse.distance_meters || 300) / 80))} min walk
+                      </span>
                       {pulse.priority_window_active && (
                         <span className="badge badge-amber" title="10-minute priority window active">
                           <Sparkles size={12} /> Priority Window
@@ -545,14 +597,25 @@ export default function StudentPortal({ user, onUserUpdate }) {
                       <span className="qty-label">baskets available</span>
                     </div>
 
-                    <button 
-                      className="btn btn-primary"
-                      onClick={() => handleClaimPulse(pulse)}
-                      disabled={claimLoading || pulse.quantity_remaining <= 0 || Boolean(activeClaim)}
-                    >
-                      <QrCode size={16} />
-                      {activeClaim ? 'Active Claim in Progress' : 'Claim Free Meal'}
-                    </button>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => setSelectedRouteTarget(pulse)}
+                        title="Show street road route and travel time on the map"
+                      >
+                        <Navigation size={14} />
+                        Route on Map
+                      </button>
+                      <button 
+                        className="btn btn-primary"
+                        onClick={() => handleClaimPulse(pulse)}
+                        disabled={claimLoading || pulse.quantity_remaining <= 0 || Boolean(activeClaim)}
+                      >
+                        <QrCode size={16} />
+                        {activeClaim ? 'Active Claim in Progress' : 'Claim Free Meal'}
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}

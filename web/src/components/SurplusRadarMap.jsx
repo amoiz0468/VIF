@@ -1,21 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Maximize2, Minimize2 } from 'lucide-react';
-
-// Partner Boulangeries across Paris zones (including 15ème / Pasteur / Rue du Dr Roux)
-const PARTNER_BOULANGERIES = [
-  { id: 'partner-12', shop_name: 'Boulangerie-Pâtisserie Pasteur', shop_address: '25 Boulevard Pasteur, 75015 Paris', lat: 48.8448, lng: 2.3125 },
-  { id: 'partner-13', shop_name: 'Le Moulin de la Vierge Volontaires', shop_address: '105 Rue Vercingétorix / Rue Lecourbe, 75015 Paris', lat: 48.8458, lng: 2.3068 },
-  { id: 'partner-14', shop_name: 'Maison Pichard Cambronne', shop_address: '88 Rue Cambronne, 75015 Paris', lat: 48.8439, lng: 2.3032 },
-  { id: 'partner-11', shop_name: 'Boulangerie Thierry Marx', shop_address: '51 Rue de Vaugirard, 75015 Paris', lat: 48.8442, lng: 2.3185 },
-  { id: 'partner-10', shop_name: 'Maison Kayser Montparnasse', shop_address: '14 Rue du Départ, 75015 Paris', lat: 48.8428, lng: 2.3235 },
-  { id: 'partner-1', shop_name: 'Boulangerie Poilâne du Marais', shop_address: '38 Rue de Bretagne, 75003 Paris', lat: 48.8615, lng: 2.3622 },
-  { id: 'partner-2', shop_name: 'Maison Landemaine Saint-Paul', shop_address: '26 Rue des Rosiers, 75004 Paris', lat: 48.8568, lng: 2.3585 },
-  { id: 'partner-3', shop_name: 'Du Pain et des Idées', shop_address: '34 Rue Yves Toudic, 75010 Paris', lat: 48.8710, lng: 2.3628 },
-  { id: 'partner-4', shop_name: 'Boulangerie Utopie', shop_address: '20 Rue Jean-Pierre Timbaud, 75011 Paris', lat: 48.8648, lng: 2.3682 },
-  { id: 'partner-5', shop_name: 'La Maison d’Isabelle', shop_address: '47ter Bd Saint-Germain, 75005 Paris', lat: 48.8502, lng: 2.3482 },
-  { id: 'partner-8', shop_name: 'Boulangerie Moderne Rabineau', shop_address: '16 Rue des Fossés Saint-Jacques, 75005 Paris', lat: 48.8452, lng: 2.3448 },
-  { id: 'partner-9', shop_name: 'Ten Belles Bread Bastille', shop_address: '17-19 Rue Breguet, 75011 Paris', lat: 48.8555, lng: 2.3718 },
-];
+import { Maximize2, Minimize2, Navigation, Clock, X } from 'lucide-react';
 
 // Calculate Haversine distance in meters between two lat/lng coordinates
 function getDistanceMeters(lat1, lng1, lat2, lng2) {
@@ -37,15 +21,25 @@ export default function SurplusRadarMap({
   onClaimPulse,
   onLocationChange,
   activeClaim = null,
+  selectedRouteTarget = null,
+  onClearRouteTarget,
+  onRouteCalculated,
   claimLoading = false
 }) {
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const markersLayerRef = useRef(null);
+  const routeLayerRef = useRef(null);
   const studentCircleRef = useRef(null);
   const studentMarkerRef = useRef(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const [mapReady, setMapReady] = useState(false);
+  const [routeSummary, setRouteSummary] = useState(null);
+
+  // Determine which bakery we should draw a road route to (Active Claim takes priority, or user-clicked route preview)
+  const routeTarget = activeClaim && (activeClaim.latitude || activeClaim.longitude)
+    ? activeClaim
+    : selectedRouteTarget;
 
   // 1. Initialize Leaflet Map with free OpenStreetMap tiles
   useEffect(() => {
@@ -66,6 +60,7 @@ export default function SurplusRadarMap({
             maxZoom: 19,
           }).addTo(map);
 
+          routeLayerRef.current = L.layerGroup().addTo(map);
           markersLayerRef.current = L.layerGroup().addTo(map);
           mapInstanceRef.current = map;
           setMapReady(true);
@@ -92,13 +87,14 @@ export default function SurplusRadarMap({
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
         markersLayerRef.current = null;
+        routeLayerRef.current = null;
         studentMarkerRef.current = null;
         studentCircleRef.current = null;
       }
     };
   }, []);
 
-  // 2. Render Student Marker (with exact street address), 1km Geofence Circle, and Boulangeries
+  // 2. Render Student Marker, 1km Geofence Circle, and ONLY Database Boulangerie Markers
   useEffect(() => {
     if (!mapReady || !mapInstanceRef.current || !window.L || !studentCoords) return;
     const L = window.L;
@@ -108,8 +104,9 @@ export default function SurplusRadarMap({
     const studentLat = Number(studentCoords.lat);
     const studentLng = Number(studentCoords.lng);
 
-    // Smoothly fly to student's exact street position
-    map.flyTo([studentLat, studentLng], 15, { duration: 1.0 });
+    if (!routeTarget) {
+      map.flyTo([studentLat, studentLng], 15, { duration: 1.0 });
+    }
 
     const shortLabel = studentAddress
       ? studentAddress.split(',')[0]
@@ -154,7 +151,7 @@ export default function SurplusRadarMap({
         <p class="popup-address" style="font-weight:600;color:#0F172A;">📍 ${studentAddress}</p>
         <div class="popup-item" style="background:#EFF6FF;border-color:#BFDBFE;color:#1E40AF;">
           <strong>GPS Coordinates:</strong> ${studentLat.toFixed(5)}° N, ${studentLng.toFixed(5)}° E<br/>
-          <span>1,000m real-time geofence active around this address. (Tip: You can drag your blue pin!)</span>
+          <span>1,000m real-time geofence active around this address.</span>
         </div>
       </div>
     `);
@@ -169,35 +166,52 @@ export default function SurplusRadarMap({
         weight: 2,
         dashArray: '6, 6',
         fillColor: '#3B82F6',
-        fillOpacity: 0.10,
+        fillOpacity: 0.08,
       }).addTo(map);
     }
 
+    // Clear and render ONLY Database Boulangerie markers
     markersLayer.clearLayers();
 
-    // A) Render Live Surplus Pulses from Backend
-    const renderedShopNames = new Set();
-    pulses.forEach((pulse, idx) => {
-      let bLat = pulse.latitude ? Number(pulse.latitude) : null;
-      let bLng = pulse.longitude ? Number(pulse.longitude) : null;
+    // Combine nearby DB pulses + activeClaim bakery (if not already in pulses list)
+    const dbBakeries = [...pulses];
+    if (
+      activeClaim &&
+      activeClaim.latitude &&
+      activeClaim.longitude &&
+      !dbBakeries.some((p) => p.pulse_id === activeClaim.pulse_id || p.shop_name === activeClaim.shop_name)
+    ) {
+      dbBakeries.push({
+        pulse_id: activeClaim.pulse_id || 'claimed',
+        shop_name: activeClaim.shop_name,
+        shop_address: activeClaim.shop_address,
+        item_name: activeClaim.item_name,
+        quantity_remaining: 1,
+        latitude: activeClaim.latitude,
+        longitude: activeClaim.longitude,
+        distance_meters: activeClaim.distance_meters,
+      });
+    }
 
-      if (!bLat || !bLng) {
-        const angle = (idx * 137.5 * Math.PI) / 180;
-        const distDeg = 0.0035;
-        bLat = studentLat + Math.cos(angle) * distDeg;
-        bLng = studentLng + Math.sin(angle) * distDeg;
-      }
+    dbBakeries.forEach((pulse) => {
+      if (!pulse.latitude || !pulse.longitude) return;
+      const bLat = Number(pulse.latitude);
+      const bLng = Number(pulse.longitude);
 
-      renderedShopNames.add((pulse.shop_name || '').toLowerCase());
       const distMeters = Math.round(
         pulse.distance_meters ?? getDistanceMeters(studentLat, studentLng, bLat, bLng)
       );
+      const walkMins = Math.max(1, Math.round(distMeters / 80));
+
+      const isClaimedTarget =
+        routeTarget &&
+        (routeTarget.pulse_id === pulse.pulse_id || routeTarget.shop_name === pulse.shop_name);
 
       const bakeryIcon = L.divIcon({
         className: 'boulangerie-custom-marker-wrapper',
         html: `
           <div class="boulangerie-marker-container">
-            <div class="boulangerie-pin active-pulse-pin">
+            <div class="boulangerie-pin ${isClaimedTarget ? 'partner-nearby-pin' : 'active-pulse-pin'}">
               <span class="bakery-emoji">🥖</span>
               <span class="boulangerie-badge">${pulse.quantity_remaining}</span>
             </div>
@@ -212,7 +226,7 @@ export default function SurplusRadarMap({
         <div class="boulangerie-popup-card">
           <div class="popup-header">
             <h4 class="popup-title">🥖 ${pulse.shop_name}</h4>
-            <span class="popup-dist">${distMeters}m</span>
+            <span class="popup-dist">🚶 ${walkMins} min (${distMeters}m)</span>
           </div>
           <p class="popup-address">📍 ${pulse.shop_address || 'Paris'}</p>
           <div class="popup-item">
@@ -220,9 +234,9 @@ export default function SurplusRadarMap({
             ${pulse.description ? `<p class="popup-desc">${pulse.description}</p>` : ''}
           </div>
           <div class="popup-footer">
-            <span class="popup-qty">● ${pulse.quantity_remaining} baskets available</span>
+            <span class="popup-qty">● ${pulse.quantity_remaining} baskets left</span>
             <button class="popup-claim-btn" id="claim-btn-${pulse.pulse_id}" ${activeClaim || claimLoading || pulse.quantity_remaining <= 0 ? 'disabled' : ''}>
-              Claim Free Meal
+              ${activeClaim ? 'Claimed' : 'Claim Free Meal'}
             </button>
           </div>
         </div>
@@ -246,55 +260,106 @@ export default function SurplusRadarMap({
         }
       });
     });
+  }, [mapReady, studentCoords, studentAddress, pulses, selectedZoneName, activeClaim, routeTarget, claimLoading, onClaimPulse, onLocationChange]);
 
-    // B) Render Partner Boulangeries not already in active pulses
-    PARTNER_BOULANGERIES.forEach((partner) => {
-      if (renderedShopNames.has(partner.shop_name.toLowerCase())) return;
+  // 3. Draw Real Street Route & Calculate Walking/Cycling Time when a meal is claimed (or route target selected)
+  useEffect(() => {
+    if (!mapReady || !mapInstanceRef.current || !routeLayerRef.current || !window.L) return;
+    const L = window.L;
+    const map = mapInstanceRef.current;
+    const routeLayer = routeLayerRef.current;
+    routeLayer.clearLayers();
 
-      const distMeters = Math.round(getDistanceMeters(studentLat, studentLng, partner.lat, partner.lng));
-      const inGeofence = distMeters <= 1000;
+    if (!routeTarget || !routeTarget.latitude || !routeTarget.longitude || !studentCoords) {
+      setRouteSummary(null);
+      if (onRouteCalculated) onRouteCalculated(null);
+      return;
+    }
 
-      const partnerIcon = L.divIcon({
-        className: 'boulangerie-custom-marker-wrapper',
-        html: `
-          <div class="boulangerie-marker-container">
-            <div class="boulangerie-pin ${inGeofence ? 'partner-nearby-pin' : 'partner-far-pin'}">
-              <span class="bakery-emoji">🥐</span>
-            </div>
-            <div class="boulangerie-marker-label">${partner.shop_name}</div>
-          </div>
-        `,
-        iconSize: [120, 58],
-        iconAnchor: [60, 44],
-      });
+    const startLat = Number(studentCoords.lat);
+    const startLng = Number(studentCoords.lng);
+    const endLat = Number(routeTarget.latitude);
+    const endLng = Number(routeTarget.longitude);
 
-      const popupHtml = `
-        <div class="boulangerie-popup-card">
-          <div class="popup-header">
-            <h4 class="popup-title">🥐 ${partner.shop_name}</h4>
-            <span class="popup-dist">${distMeters}m away</span>
-          </div>
-          <p class="popup-address">📍 ${partner.shop_address}</p>
-          <div class="popup-item">
-            <strong>Vif Partner Boulangerie</strong>
-            <p class="popup-desc">
-              ${inGeofence 
-                ? 'Inside your 1km geofence! Click Refresh Radar to check active drops.' 
-                : 'Partner bakery in Paris outside your current 1km circle.'}
-            </p>
-          </div>
-        </div>
-      `;
+    let cancelled = false;
 
-      L.marker([partner.lat, partner.lng], { icon: partnerIcon })
-        .addTo(markersLayer)
-        .bindPopup(popupHtml, {
-          className: 'boulangerie-popup-wrapper',
-          maxWidth: 260,
-          offset: [0, -28],
-        });
-    });
-  }, [mapReady, studentCoords, studentAddress, pulses, selectedZoneName, activeClaim, claimLoading, onClaimPulse, onLocationChange]);
+    const fetchAndDrawRoute = async () => {
+      let coordsLatLng = [
+        [startLat, startLng],
+        [endLat, endLng],
+      ];
+      let roadDistMeters = getDistanceMeters(startLat, startLng, endLat, endLng) * 1.25;
+
+      try {
+        // Query OpenStreetMap Foot Routing Engine for real Paris street path
+        const url = `https://routing.openstreetmap.de/routed-foot/route/v1/driving/${startLng},${startLat};${endLng},${endLat}?overview=full&geometries=geojson`;
+        const resp = await fetch(url);
+        if (resp.ok) {
+          const data = await resp.json();
+          if (data.routes && data.routes.length > 0) {
+            const route = data.routes[0];
+            roadDistMeters = route.distance || roadDistMeters;
+            if (route.geometry && Array.isArray(route.geometry.coordinates)) {
+              coordsLatLng = route.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Fallback to direct line route:', err);
+      }
+
+      if (cancelled) return;
+
+      // Walking speed ~4.8 km/h (80m/min), Cycling ~15 km/h (250m/min)
+      const walkMinutes = Math.max(1, Math.round(roadDistMeters / 80));
+      const bikeMinutes = Math.max(1, Math.round(roadDistMeters / 250));
+      const roundedDist = Math.round(roadDistMeters);
+
+      const summary = {
+        shopName: routeTarget.shop_name,
+        shopAddress: routeTarget.shop_address,
+        walkMinutes,
+        bikeMinutes,
+        distanceMeters: roundedDist,
+        isClaimed: Boolean(activeClaim),
+      };
+
+      setRouteSummary(summary);
+      if (onRouteCalculated) onRouteCalculated(summary);
+
+      // Draw outer glow line
+      L.polyline(coordsLatLng, {
+        color: '#10B981',
+        weight: 8,
+        opacity: 0.35,
+        lineCap: 'round',
+        lineJoin: 'round',
+      }).addTo(routeLayer);
+
+      // Draw crisp inner road path line
+      const mainLine = L.polyline(coordsLatLng, {
+        color: '#059669',
+        weight: 4,
+        opacity: 0.95,
+        dashArray: '8, 8',
+        lineCap: 'round',
+        lineJoin: 'round',
+      }).addTo(routeLayer);
+
+      // Fit map bounds to show both Student and Boulangerie along the road route
+      try {
+        map.fitBounds(mainLine.getBounds(), { padding: [55, 55], maxZoom: 16 });
+      } catch (e) {
+        // ignore bounds error
+      }
+    };
+
+    fetchAndDrawRoute();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mapReady, studentCoords, routeTarget, activeClaim]);
 
   const toggleExpand = () => {
     setIsExpanded((prev) => !prev);
@@ -310,7 +375,7 @@ export default function SurplusRadarMap({
       <div className="radar-map-header">
         <div className="radar-map-title-row">
           <div className="radar-live-dot"></div>
-          <span className="radar-map-title">Live Map: Student &amp; Boulangerie Locations</span>
+          <span className="radar-map-title">Live Map: Student &amp; DB Boulangeries Within 1km</span>
           <span className="badge badge-amber" style={{ fontSize: '0.75rem', padding: '2px 8px' }}>
             1,000m Radar
           </span>
@@ -321,7 +386,7 @@ export default function SurplusRadarMap({
             <span className="legend-dot legend-student"></span> 🎓 You ({studentAddress.split(',')[0]})
           </span>
           <span className="radar-legend-item">
-            <span className="legend-dot legend-bakery"></span> 🥖 Active Surplus ({pulses.length})
+            <span className="legend-dot legend-bakery"></span> 🥖 DB Boulangeries Nearby ({pulses.length})
           </span>
           <button 
             type="button" 
@@ -336,6 +401,54 @@ export default function SurplusRadarMap({
         </div>
       </div>
 
+      {/* Active Road Route & Travel Time Banner */}
+      {routeSummary && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '10px',
+          background: '#ECFDF5',
+          border: '1px solid #A7F3D0',
+          borderRadius: '10px',
+          padding: '10px 14px',
+          color: '#065F46'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <span className="badge badge-emerald" style={{ background: '#059669', color: '#FFFFFF', padding: '4px 10px' }}>
+              <Navigation size={12} style={{ marginRight: '4px' }} />
+              {routeSummary.isClaimed ? 'Active Pickup Route' : 'Road Route Preview'}
+            </span>
+            <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>
+              To {routeSummary.shopName} ({routeSummary.shopAddress})
+            </span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.85rem', fontWeight: 700 }}>
+            <span style={{ background: '#FFFFFF', padding: '4px 10px', borderRadius: '999px', border: '1px solid #6EE7B7' }}>
+              🚶 {routeSummary.walkMinutes} min walk
+            </span>
+            <span style={{ background: '#FFFFFF', padding: '4px 10px', borderRadius: '999px', border: '1px solid #6EE7B7' }}>
+              🚲 {routeSummary.bikeMinutes} min bike
+            </span>
+            <span style={{ color: '#047857' }}>
+              📏 {routeSummary.distanceMeters} m road distance
+            </span>
+            {!routeSummary.isClaimed && onClearRouteTarget && (
+              <button
+                type="button"
+                onClick={onClearRouteTarget}
+                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#065F46', display: 'flex', alignItems: 'center' }}
+                title="Clear route preview"
+              >
+                <X size={16} />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="map-view-container" ref={mapContainerRef}>
         {!mapReady && (
           <div className="map-loading-overlay">
@@ -345,7 +458,7 @@ export default function SurplusRadarMap({
       </div>
 
       <div className="radar-map-footer-hint">
-        <span>📍 <strong>Your Exact Location:</strong> <strong style={{ color: '#0F172A' }}>{studentAddress}</strong> ({studentCoords.lat.toFixed(5)}°N, {studentCoords.lng.toFixed(5)}°E) · Drag your blue pin 🎓 or search any street address above.</span>
+        <span>📍 <strong>Your Exact Location:</strong> <strong style={{ color: '#0F172A' }}>{studentAddress}</strong> · Showing only database boulangeries within 1 km. Claim a meal or click "Route on Map" to view the street path &amp; walking time.</span>
       </div>
     </div>
   );

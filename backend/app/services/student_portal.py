@@ -726,7 +726,7 @@ PARTNER_BOULANGERIES_SEED = [
         "shop_address": "14 Rue du Départ, 75015 Paris",
         "siret": "40918273000033",
         "lat": 48.8428,
-        "lng": 2.3235,
+        "lng": 2.3175,
         "item_name": "Panier Repas Étudiant: Sandwich + Dessert",
         "description": "Grand sandwich céréales, flan pâtissier artisanal et petite baguette.",
         "quantity": 10,
@@ -734,58 +734,38 @@ PARTNER_BOULANGERIES_SEED = [
     {
         "email": "thierrymarx.vaugirard@vif-bakery.fr",
         "shop_name": "Boulangerie Thierry Marx",
-        "shop_address": "51 Rue de Vaugirard, 75015 Paris",
+        "shop_address": "51 Rue de Vaugirard / Bd Pasteur, 75015 Paris",
         "siret": "81290345000011",
-        "lat": 48.8442,
-        "lng": 2.3185,
+        "lat": 48.8448,
+        "lng": 2.3125,
         "item_name": "Breadmakis & Pains de Campagne Bio",
         "description": "Créations boulangères bio et miches de pain au levain naturel.",
         "quantity": 6,
     },
-    {
-        "email": "pasteur.docteurroux@vif-bakery.fr",
-        "shop_name": "Boulangerie-Pâtisserie Pasteur",
-        "shop_address": "25 Boulevard Pasteur, 75015 Paris",
-        "siret": "43198276000014",
-        "lat": 48.8448,
-        "lng": 2.3125,
-        "item_name": "12 Baguettes Tradition & Pains au Chocolat",
-        "description": "Baguettes traditionnelles chaudes et viennoiseries pur beurre à 200m de l'Institut Pasteur.",
-        "quantity": 8,
-    },
-    {
-        "email": "moulindelavierge.volontaires@vif-bakery.fr",
-        "shop_name": "Le Moulin de la Vierge Volontaires",
-        "shop_address": "105 Rue Vercingétorix / Rue Lecourbe, 75015 Paris",
-        "siret": "32891047000028",
-        "lat": 48.8458,
-        "lng": 2.3068,
-        "item_name": "Pains au Levain Bio & Quiches Lorraines",
-        "description": "Pains biologiques cuits au four à pierre et parts de quiches artisanales.",
-        "quantity": 7,
-    },
-    {
-        "email": "pichard.cambronne@vif-bakery.fr",
-        "shop_name": "Maison Pichard Cambronne",
-        "shop_address": "88 Rue Cambronne, 75015 Paris",
-        "siret": "51209384000019",
-        "lat": 48.8439,
-        "lng": 2.3032,
-        "item_name": "Panier Étudiant: Sandwiches + Éclairs Chocolat",
-        "description": "Sandwiches poulet-crudités sur baguette tradition et pâtisseries du jour.",
-        "quantity": 6,
-    },
 ]
+
+EXTRA_SIRETS_TO_CLEAN = ("43198276000014", "32891047000028", "51209384000019")
 
 
 def ensure_partner_boulangeries_seeded(session_factory: sessionmaker) -> None:
-    """Ensure Paris partner bakeries and active surplus pulses exist in PostgreSQL so map and feed match."""
+    """Ensure the 9 Paris partner bakeries and active surplus pulses exist in PostgreSQL."""
     now = datetime.now(timezone.utc)
     expires = now + timedelta(hours=24)
     created = now - timedelta(minutes=15)
 
     try:
         with session_factory() as db:
+            # Remove any extra duplicate seeded bakeries so DB stays strictly at the 9 bakeries
+            extra_shops = db.query(models.Shop).filter(models.Shop.siret.in_(EXTRA_SIRETS_TO_CLEAN)).all()
+            for ex_shop in extra_shops:
+                db.query(models.Claim).filter(models.Claim.shop_id == ex_shop.id).delete()
+                db.query(models.Pulse).filter(models.Pulse.shop_id == ex_shop.id).delete()
+                owner_id = ex_shop.owner_user_id
+                db.delete(ex_shop)
+                db.flush()
+                if owner_id:
+                    db.query(models.User).filter(models.User.id == owner_id).delete()
+            db.flush()
             for item in PARTNER_BOULANGERIES_SEED:
                 shop = db.query(models.Shop).filter(models.Shop.siret == item["siret"]).first()
                 if not shop:
