@@ -130,6 +130,19 @@ export const api = {
     });
   },
 
+  updatePulse: async (pulseId, pulseData) => {
+    return await request(`/pulses/${pulseId}`, {
+      method: 'PUT',
+      body: JSON.stringify(pulseData),
+    });
+  },
+
+  deletePulse: async (pulseId) => {
+    return await request(`/pulses/${pulseId}`, {
+      method: 'DELETE',
+    });
+  },
+
   validateClaim: async (qrToken) => {
     return await request('/validate-claim', {
       method: 'POST',

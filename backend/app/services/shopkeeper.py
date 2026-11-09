@@ -153,6 +153,16 @@ async def create_pulse(
 ) -> Tuple[models.Pulse, int]:
     shop = get_or_create_shop(db, current_user)
 
+    if payload.cost_price is not None:
+        costs = dict(shop.inventory_costs or {})
+        costs[payload.item_name] = {
+            "cost_price": float(payload.cost_price),
+            "unit": "unit",
+            "currency": "EUR",
+        }
+        shop.inventory_costs = costs
+        db.add(shop)
+
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(minutes=60)
 
@@ -264,11 +274,15 @@ def get_bakery_history(db: Session, current_user: models.User) -> schemas.Bakery
 
     pulses_list: List[schemas.BakeryPulseHistoryItem] = []
     active_pulses_count = 0
+    total_posted_tax_credit = 0.0
     for p in pulses_rows:
         exp = _ensure_aware_utc(p.expires_at)
         is_active = exp > now and (p.quantity_remaining or 0) > 0
         if is_active:
             active_pulses_count += 1
+        unit_cost = float(_get_inventory_cost(shop, p.item_name))
+        tax_deduction_val = round((p.quantity or 0) * unit_cost * 0.60, 2)
+        total_posted_tax_credit += tax_deduction_val
         pulses_list.append(
             schemas.BakeryPulseHistoryItem(
                 pulse_id=p.id,
@@ -276,6 +290,8 @@ def get_bakery_history(db: Session, current_user: models.User) -> schemas.Bakery
                 description=p.description,
                 quantity=p.quantity,
                 quantity_remaining=p.quantity_remaining or 0,
+                cost_price=unit_cost,
+                tax_deduction_value=tax_deduction_val,
                 is_donation=bool(p.is_donation),
                 created_at=_ensure_aware_utc(p.created_at),
                 expires_at=exp,
@@ -326,8 +342,8 @@ def get_bakery_history(db: Session, current_user: models.User) -> schemas.Bakery
             )
         )
 
-    # Estimate 60% CGI Art. 238 bis tax credit across collected + active baskets
-    estimated_tax_credit = round((total_baskets_donated or len(pulses_list)) * 2.40 * 0.60, 2)
+    # Estimate 60% CGI Art. 238 bis tax credit across the bakery's items
+    estimated_tax_credit = round(total_posted_tax_credit, 2)
 
     return schemas.BakeryHistoryResponse(
         shop_id=shop.id,
@@ -350,6 +366,114 @@ def get_bakery_history(db: Session, current_user: models.User) -> schemas.Bakery
         pulses=pulses_list,
         claims=claims_list,
     )
+
+
+def update_pulse(
+    db: Session,
+    current_user: models.User,
+    pulse_id: UUID,
+    payload: schemas.PulseUpdate,
+) -> schemas.BakeryPulseHistoryItem:
+    """Update a bakery surplus pulse/item and its internal Cerfa tax unit cost price."""
+    shop = get_or_create_shop(db, current_user)
+    pulse = (
+        db.query(models.Pulse)
+        .filter(models.Pulse.id == pulse_id, models.Pulse.shop_id == shop.id)
+        .first()
+    )
+    if not pulse:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Surplus item/pulse not found for your bakery",
+        )
+
+    old_name = pulse.item_name
+    if payload.item_name is not None and payload.item_name.strip():
+        pulse.item_name = payload.item_name.strip()
+
+    if payload.description is not None:
+        pulse.description = payload.description.strip()
+
+    if payload.quantity is not None:
+        pulse.quantity = payload.quantity
+
+    if payload.quantity_remaining is not None:
+        pulse.quantity_remaining = payload.quantity_remaining
+
+    now = datetime.now(timezone.utc)
+    if payload.extend_minutes is not None and payload.extend_minutes > 0:
+        base_time = max(now, _ensure_aware_utc(pulse.expires_at))
+        pulse.expires_at = base_time + timedelta(minutes=payload.extend_minutes)
+    elif (pulse.quantity_remaining or 0) > 0 and _ensure_aware_utc(pulse.expires_at) <= now:
+        # Automatically reactivate for 60 minutes if quantity_remaining is set > 0 on an expired item
+        pulse.expires_at = now + timedelta(minutes=60)
+
+    if payload.cost_price is not None:
+        costs = dict(shop.inventory_costs or {})
+        if old_name != pulse.item_name and old_name in costs:
+            costs.pop(old_name, None)
+        costs[pulse.item_name] = {
+            "cost_price": float(payload.cost_price),
+            "unit": "unit",
+            "currency": "EUR",
+        }
+        shop.inventory_costs = costs
+        db.add(shop)
+    elif old_name != pulse.item_name:
+        costs = dict(shop.inventory_costs or {})
+        if old_name in costs:
+            costs[pulse.item_name] = costs.pop(old_name)
+            shop.inventory_costs = costs
+            db.add(shop)
+
+    db.add(pulse)
+    db.commit()
+    db.refresh(pulse)
+    db.refresh(shop)
+
+    exp = _ensure_aware_utc(pulse.expires_at)
+    is_active = exp > now and (pulse.quantity_remaining or 0) > 0
+    unit_cost = float(_get_inventory_cost(shop, pulse.item_name))
+    tax_deduction_val = round((pulse.quantity or 0) * unit_cost * 0.60, 2)
+
+    return schemas.BakeryPulseHistoryItem(
+        pulse_id=pulse.id,
+        item_name=pulse.item_name,
+        description=pulse.description,
+        quantity=pulse.quantity,
+        quantity_remaining=pulse.quantity_remaining or 0,
+        cost_price=unit_cost,
+        tax_deduction_value=tax_deduction_val,
+        is_donation=bool(pulse.is_donation),
+        created_at=_ensure_aware_utc(pulse.created_at),
+        expires_at=exp,
+        is_active=is_active,
+    )
+
+
+def delete_pulse(
+    db: Session,
+    current_user: models.User,
+    pulse_id: UUID,
+) -> dict:
+    """Delete a bakery surplus item/pulse and any dependent claims."""
+    shop = get_or_create_shop(db, current_user)
+    pulse = (
+        db.query(models.Pulse)
+        .filter(models.Pulse.id == pulse_id, models.Pulse.shop_id == shop.id)
+        .first()
+    )
+    if not pulse:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Surplus item/pulse not found for your bakery",
+        )
+
+    item_name = pulse.item_name
+    db.query(models.Claim).filter(models.Claim.pulse_id == pulse.id).delete()
+    db.delete(pulse)
+    db.commit()
+    return {"deleted": True, "pulse_id": str(pulse_id), "item_name": item_name}
 
 
 def update_bakery_profile(

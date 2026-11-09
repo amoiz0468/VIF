@@ -6,9 +6,12 @@ import {
   MapPin,
   Bell,
   Clock,
-  CheckCircle2,
   QrCode,
   History,
+  Package,
+  Edit3,
+  Trash2,
+  Lock,
 } from 'lucide-react';
 
 export default function BakeryPulsePage({
@@ -20,12 +23,15 @@ export default function BakeryPulsePage({
   setItemName,
   quantity,
   setQuantity,
+  costPrice,
+  setCostPrice,
   description,
   setDescription,
   postingPulse,
   onPostPulse,
   lastPostedPulse,
   bakeryHistory,
+  onDeleteItem,
   onNavigatePage,
 }) {
   const activePulses = (bakeryHistory?.pulses || []).filter((p) => p.is_active);
@@ -110,16 +116,18 @@ export default function BakeryPulsePage({
                 <input
                   type="text"
                   className="form-input"
-                  placeholder="e.g. 10 Baguettes Traditionnelles"
+                  placeholder="e.g. Pain de Campagne / 10 Baguettes"
                   value={itemName}
                   onChange={(e) => setItemName(e.target.value)}
                   required
                 />
               </div>
 
-              <div className="form-row-2">
-                <div className="form-group">
-                  <label className="form-label">Quantity Available</label>
+              <div className="form-row-2" style={{ alignItems: 'end' }}>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label" style={{ whiteSpace: 'nowrap' }}>
+                    Quantity Available
+                  </label>
                   <input
                     type="number"
                     min="1"
@@ -131,12 +139,39 @@ export default function BakeryPulsePage({
                   />
                 </div>
 
-                <div className="form-group">
-                  <label className="form-label">Donation Type</label>
-                  <div className="toggle-donation-box">
-                    <span className="toggle-label">Free Student Meal</span>
-                    <span className="badge badge-emerald">60% Tax Write-off</span>
-                  </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label
+                    className="form-label"
+                    style={{ whiteSpace: 'nowrap' }}
+                    title="Used strictly for your Cerfa 60% tax deduction report. Students always see €0 (Free)."
+                  >
+                    🔒 Unit Cost (€ Tax Only)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.05"
+                    min="0"
+                    className="form-input font-mono"
+                    placeholder="0.85"
+                    value={costPrice}
+                    onChange={(e) => setCostPrice(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <div
+                  className="toggle-donation-box"
+                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                >
+                  <span className="toggle-label" style={{ fontSize: '0.82rem' }}>
+                    🎓 Student Price: <strong>Free (€0.00)</strong> · Bakery Tax Credit:{' '}
+                    <strong style={{ color: '#059669' }}>
+                      €{((parseFloat(costPrice) || 0) * (parseInt(quantity, 10) || 0) * 0.6).toFixed(2)}
+                    </strong>
+                  </span>
+                  <span className="badge badge-emerald">60% Tax Write-off</span>
                 </div>
               </div>
 
@@ -199,10 +234,17 @@ export default function BakeryPulsePage({
                   Live Surplus Pulses Currently Active at Your Bakery ({activePulses.length})
                 </h3>
                 <p style={{ fontSize: '0.82rem', color: '#64748B', marginTop: '2px' }}>
-                  Visible right now on the Student Surplus Radar within 1,000m.
+                  Visible right now on the Student Surplus Radar within 1,000m. Click &ldquo;Manage Items&rdquo; to edit details, update tax cost price, or delete.
                 </p>
               </div>
-              <div style={{ display: 'flex', gap: '8px' }}>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={() => onNavigatePage('/bakery/items')}
+                >
+                  <Package size={14} /> Manage &amp; Edit Items ({bakeryHistory?.pulses?.length || activePulses.length})
+                </button>
                 <button
                   type="button"
                   className="btn btn-secondary btn-sm"
@@ -210,20 +252,13 @@ export default function BakeryPulsePage({
                 >
                   <QrCode size={14} /> Validate Student QR
                 </button>
-                <button
-                  type="button"
-                  className="btn btn-outline btn-sm"
-                  onClick={() => onNavigatePage('/bakery/history')}
-                >
-                  <History size={14} /> View Full History
-                </button>
               </div>
             </div>
 
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
                 gap: '12px',
               }}
             >
@@ -236,21 +271,77 @@ export default function BakeryPulsePage({
                     borderLeft: '4px solid #10B981',
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '6px',
+                    justifyContent: 'space-between',
+                    gap: '8px',
                   }}
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <strong style={{ color: '#0F172A', fontSize: '0.94rem' }}>{p.item_name}</strong>
-                    <span className="badge badge-emerald">
-                      {p.quantity_remaining} / {p.quantity} left
-                    </span>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                      <strong style={{ color: '#0F172A', fontSize: '0.96rem' }}>🥖 {p.item_name}</strong>
+                      <span className="badge badge-emerald">
+                        {p.quantity_remaining} / {p.quantity} left
+                      </span>
+                    </div>
+                    {p.description && (
+                      <div style={{ fontSize: '0.8rem', color: '#64748B', marginTop: '4px' }}>
+                        {p.description}
+                      </div>
+                    )}
+                    <div
+                      style={{
+                        fontSize: '0.78rem',
+                        color: '#B45309',
+                        fontWeight: 700,
+                        marginTop: '6px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                      }}
+                    >
+                      <Lock size={12} />
+                      <span>
+                        Tax Unit Cost: €{Number(p.cost_price ?? 0.85).toFixed(2)} · 60% Write-off: €
+                        {Number(p.tax_deduction_value ?? 0).toFixed(2)}
+                      </span>
+                    </div>
                   </div>
-                  {p.description && (
-                    <div style={{ fontSize: '0.8rem', color: '#64748B' }}>{p.description}</div>
-                  )}
-                  <div style={{ fontSize: '0.75rem', color: '#94A3B8', marginTop: '4px' }}>
-                    <Clock size={12} style={{ verticalAlign: 'middle', marginRight: '4px' }} />
-                    Expires: {new Date(p.expires_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      paddingTop: '8px',
+                      borderTop: '1px solid #F1F5F9',
+                    }}
+                  >
+                    <span style={{ fontSize: '0.74rem', color: '#94A3B8' }}>
+                      <Clock size={12} style={{ verticalAlign: 'middle', marginRight: '4px' }} />
+                      Expires:{' '}
+                      {new Date(p.expires_at).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        style={{ padding: '4px 10px', fontSize: '0.76rem' }}
+                        onClick={() => onNavigatePage('/bakery/items')}
+                      >
+                        <Edit3 size={12} /> Edit / Price
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-sm"
+                        style={{ padding: '4px 8px', fontSize: '0.76rem', color: '#DC2626', borderColor: '#FCA5A5' }}
+                        onClick={() => onDeleteItem(p.pulse_id, p.item_name)}
+                        title="Delete this item"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}

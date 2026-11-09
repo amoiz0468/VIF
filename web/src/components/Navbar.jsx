@@ -10,6 +10,7 @@ import {
   History,
   User as UserIcon,
   Send,
+  Package,
   QrCode,
   FileText,
   Layers,
@@ -25,6 +26,7 @@ const STUDENT_PAGES = [
 
 const BAKERY_PAGES = [
   { path: '/bakery/pulse', label: 'Surplus Pulse', icon: Send },
+  { path: '/bakery/items', label: 'Manage Items', icon: Package },
   { path: '/bakery/validate', label: 'Validate QR', icon: QrCode },
   { path: '/bakery/history', label: 'Bakery History', icon: History },
   { path: '/bakery/tax', label: 'Cerfa Tax Docs', icon: FileText },

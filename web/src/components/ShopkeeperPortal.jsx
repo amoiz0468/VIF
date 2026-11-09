@@ -3,6 +3,7 @@ import { CheckCircle2, AlertCircle } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { api } from '../api';
 import BakeryPulsePage from '../pages/bakery/BakeryPulsePage';
+import BakeryItemsPage from '../pages/bakery/BakeryItemsPage';
 import BakeryValidatePage from '../pages/bakery/BakeryValidatePage';
 import BakeryHistoryPage from '../pages/bakery/BakeryHistoryPage';
 import BakeryTaxPage from '../pages/bakery/BakeryTaxPage';
@@ -54,6 +55,7 @@ export default function ShopkeeperPortal({
   const [itemName, setItemName] = useState('');
   const [description, setDescription] = useState('');
   const [quantity, setQuantity] = useState(5);
+  const [costPrice, setCostPrice] = useState('0.85');
   const [isDonation] = useState(true);
   const [postingPulse, setPostingPulse] = useState(false);
   const [lastPostedPulse, setLastPostedPulse] = useState(null);
@@ -101,6 +103,7 @@ export default function ShopkeeperPortal({
       currentPath === '/bakery/history' ||
       currentPath === '/bakery/validate' ||
       currentPath === '/bakery/pulse' ||
+      currentPath === '/bakery/items' ||
       currentPath === '/bakery/tax'
     ) {
       fetchBakeryHistory();
@@ -175,6 +178,7 @@ export default function ShopkeeperPortal({
   const handleApplyPreset = (preset) => {
     setItemName(preset.name);
     setQuantity(preset.qty);
+    setCostPrice(String(preset.cost));
     setDescription(preset.desc);
     showToast(`Preset "${preset.name}" loaded into form! Ready to broadcast.`);
   };
@@ -191,6 +195,7 @@ export default function ShopkeeperPortal({
         item_name: itemName,
         description,
         quantity: parseInt(quantity, 10),
+        cost_price: parseFloat(costPrice) || 0.85,
         is_donation: isDonation,
       };
       const res = await api.createPulse(payload);
@@ -207,6 +212,34 @@ export default function ShopkeeperPortal({
       showToast(err.message || 'Failed to post surplus pulse.', 'error');
     } finally {
       setPostingPulse(false);
+    }
+  };
+
+  const handleUpdateItem = async (pulseId, updatePayload) => {
+    try {
+      await api.updatePulse(pulseId, updatePayload);
+      showToast(
+        `Item "${updatePayload.item_name || 'Pulse'}" & internal Cerfa tax price updated in PostgreSQL!`
+      );
+      await fetchBakeryHistory();
+      return true;
+    } catch (err) {
+      console.error('Update item error:', err);
+      showToast(err.message || 'Failed to update item.', 'error');
+      return false;
+    }
+  };
+
+  const handleDeleteItem = async (pulseId, itemTitle = 'Item') => {
+    try {
+      await api.deletePulse(pulseId);
+      showToast(`Deleted "${itemTitle}" from your bakery items.`);
+      await fetchBakeryHistory();
+      return true;
+    } catch (err) {
+      console.error('Delete item error:', err);
+      showToast(err.message || 'Failed to delete item.', 'error');
+      return false;
     }
   };
 
@@ -353,7 +386,18 @@ export default function ShopkeeperPortal({
       )}
 
       {/* Render the Dedicated Bakery Page Component for the Current URL Route */}
-      {currentPath === '/bakery/validate' ? (
+      {currentPath === '/bakery/items' ? (
+        <BakeryItemsPage
+          user={user}
+          shopAddress={shopAddress}
+          bakeryHistory={bakeryHistory}
+          loadingHistory={loadingHistory}
+          onRefreshHistory={fetchBakeryHistory}
+          onUpdateItem={handleUpdateItem}
+          onDeleteItem={handleDeleteItem}
+          onNavigatePage={onNavigatePage}
+        />
+      ) : currentPath === '/bakery/validate' ? (
         <BakeryValidatePage
           qrTokenInput={qrTokenInput}
           setQrTokenInput={setQrTokenInput}
@@ -432,12 +476,15 @@ export default function ShopkeeperPortal({
           setItemName={setItemName}
           quantity={quantity}
           setQuantity={setQuantity}
+          costPrice={costPrice}
+          setCostPrice={setCostPrice}
           description={description}
           setDescription={setDescription}
           postingPulse={postingPulse}
           onPostPulse={handlePostPulse}
           lastPostedPulse={lastPostedPulse}
           bakeryHistory={bakeryHistory}
+          onDeleteItem={handleDeleteItem}
           onNavigatePage={onNavigatePage}
         />
       )}

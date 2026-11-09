@@ -1,0 +1,42 @@
+name: Mirror to Epitech Organization Repo
+
+on:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "**"
+  delete:
+
+jobs:
+  mirror:
+    name: Mirror to Epitech Repo
+    runs-on: ubuntu-latest
+    # Only run on the personal repository (amoiz0468/VIF)
+    if: github.repository == 'amoiz0468/VIF'
+    steps:
+      - name: Checkout full git history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Mirror via SSH Deploy Key (if EPITECH_SSH_PRIVATE_KEY is set)
+        if: env.SSH_KEY != ''
+        env:
+          SSH_KEY: ${{ secrets.EPITECH_SSH_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H github.com >> ~/.ssh/known_hosts
+          git remote add epitech git@github.com:EpitechMscInternationalPromo2027/I-YEP-800-INT-7-1-capstone-7.git || git remote set-url epitech git@github.com:EpitechMscInternationalPromo2027/I-YEP-800-INT-7-1-capstone-7.git
+          git push epitech "refs/remotes/origin/*:refs/heads/*" --tags --force --prune
+
+      - name: Mirror via Personal Access Token (if EPITECH_PAT is set)
+        if: env.SSH_KEY == '' && env.PAT_TOKEN != ''
+        env:
+          SSH_KEY: ${{ secrets.EPITECH_SSH_PRIVATE_KEY }}
+          PAT_TOKEN: ${{ secrets.EPITECH_PAT }}
+        run: |
+          git remote add epitech "https://x-access-token:${PAT_TOKEN}@github.com/EpitechMscInternationalPromo2027/I-YEP-800-INT-7-1-capstone-7.git" || git remote set-url epitech "https://x-access-token:${PAT_TOKEN}@github.com/EpitechMscInternationalPromo2027/I-YEP-800-INT-7-1-capstone-7.git"
+          git push epitech "refs/remotes/origin/*:refs/heads/*" --tags --force --prune

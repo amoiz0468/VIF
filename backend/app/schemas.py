@@ -170,7 +170,17 @@ class PulseCreate(BaseModel):
     description: Optional[str] = None
     is_donation: bool = True
     quantity: int = Field(..., gt=0)
+    cost_price: Optional[float] = Field(None, ge=0)
     expires_at: Optional[datetime] = None
+
+
+class PulseUpdate(BaseModel):
+    item_name: Optional[str] = None
+    description: Optional[str] = None
+    quantity: Optional[int] = Field(None, ge=0)
+    quantity_remaining: Optional[int] = Field(None, ge=0)
+    cost_price: Optional[float] = Field(None, ge=0)
+    extend_minutes: Optional[int] = None
 
 
 class PulseResponse(BaseModel):
@@ -181,6 +191,7 @@ class PulseResponse(BaseModel):
     is_donation: bool
     quantity: int
     quantity_remaining: int = 0
+    cost_price: float = 0.85
     expires_at: datetime
     created_at: Optional[datetime] = None
     notified_students: int = 0
@@ -304,6 +315,8 @@ class BakeryPulseHistoryItem(BaseModel):
     description: Optional[str] = None
     quantity: int
     quantity_remaining: int
+    cost_price: float = 0.85
+    tax_deduction_value: float = 0.0
     is_donation: bool = True
     created_at: datetime
     expires_at: datetime

@@ -24,6 +24,7 @@ const VALID_STUDENT_PATHS = [
 
 const VALID_BAKERY_PATHS = [
   '/bakery/pulse',
+  '/bakery/items',
   '/bakery/validate',
   '/bakery/history',
   '/bakery/tax',
