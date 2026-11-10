@@ -6,7 +6,7 @@ on:
       - "**"
     tags:
       - "**"
-  delete:
+  workflow_dispatch:
 
 jobs:
   mirror:
@@ -20,24 +20,31 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Mirror via SSH Deploy Key (if EPITECH_SSH_PRIVATE_KEY is set)
+      - name: Configure SSH Key
         if: env.SSH_KEY != ''
         env:
           SSH_KEY: ${{ secrets.EPITECH_SSH_PRIVATE_KEY }}
         run: |
           mkdir -p ~/.ssh
-          echo "$SSH_KEY" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H github.com >> ~/.ssh/known_hosts
-          git remote add epitech git@github.com:EpitechMscInternationalPromo2027/I-YEP-800-INT-7-1-capstone-7.git || git remote set-url epitech git@github.com:EpitechMscInternationalPromo2027/I-YEP-800-INT-7-1-capstone-7.git
-          git push epitech "refs/remotes/origin/*:refs/heads/*" --tags --force --prune
+          echo "=== Testing SSH Key with GitHub ==="
+          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no -T git@github.com || true
 
-      - name: Mirror via Personal Access Token (if EPITECH_PAT is set)
-        if: env.SSH_KEY == '' && env.PAT_TOKEN != ''
+      - name: Push to Epitech via SSH
+        if: env.SSH_KEY != ''
         env:
           SSH_KEY: ${{ secrets.EPITECH_SSH_PRIVATE_KEY }}
+          GIT_SSH_COMMAND: "ssh -i /home/runner/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=no"
+        run: |
+          git remote add epitech git@github.com:EpitechMscInternationalPromo2027/I-YEP-800-INT-7-1-capstone-7.git || git remote set-url epitech git@github.com:EpitechMscInternationalPromo2027/I-YEP-800-INT-7-1-capstone-7.git
+          git push epitech HEAD:refs/heads/main --force --tags
+
+      - name: Fallback to Personal Access Token (if EPITECH_PAT is set)
+        if: failure() && env.PAT_TOKEN != ''
+        env:
           PAT_TOKEN: ${{ secrets.EPITECH_PAT }}
         run: |
-          git remote add epitech "https://x-access-token:${PAT_TOKEN}@github.com/EpitechMscInternationalPromo2027/I-YEP-800-INT-7-1-capstone-7.git" || git remote set-url epitech "https://x-access-token:${PAT_TOKEN}@github.com/EpitechMscInternationalPromo2027/I-YEP-800-INT-7-1-capstone-7.git"
-          git push epitech "refs/remotes/origin/*:refs/heads/*" --tags --force --prune
-
+          git remote add epitech-pat "https://x-access-token:${PAT_TOKEN}@github.com/EpitechMscInternationalPromo2027/I-YEP-800-INT-7-1-capstone-7.git" || git remote set-url epitech-pat "https://x-access-token:${PAT_TOKEN}@github.com/EpitechMscInternationalPromo2027/I-YEP-800-INT-7-1-capstone-7.git"
+          git push epitech-pat HEAD:refs/heads/main --force --tags
